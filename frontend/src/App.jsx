@@ -1,0 +1,33 @@
+import { Navigate, Route, Routes } from "react-router-dom";
+import { useAuth } from "./context/AuthContext.jsx";
+import Layout from "./pages/Layout.jsx";
+import Landing from "./pages/Landing.jsx";
+import Login from "./pages/Login.jsx";
+import Inbox from "./pages/Inbox.jsx";
+import MyChats from "./pages/MyChats.jsx";
+import Agents from "./pages/Agents.jsx";
+import Admins from "./pages/Admins.jsx";
+import Bots from "./pages/Bots.jsx";
+
+function Protected({ children }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/login" element={<Login />} />
+      <Route element={<Protected><Layout /></Protected>}>
+        <Route path="/inbox" element={<Inbox />} />
+        <Route path="/my-chats" element={<MyChats />} />
+        <Route path="/agents" element={<Agents />} />
+        <Route path="/admins" element={<Admins />} />
+        <Route path="/bots" element={<Bots />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}

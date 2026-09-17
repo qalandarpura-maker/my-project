@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// PostgreSQL par switch karne ke liye yahan "provider" ko "sqlite" se "postgresql"
+// karo aur .env me DATABASE_URL ko postgres connection string se replace karo.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  username     String   @unique
+  passwordHash String
+  role         String // OWNER | ADMIN | AGENT
+  createdById  String?
+  createdBy    User?    @relation("UserHierarchy", fields: [createdById], references: [id])
+  createdUsers User[]   @relation("UserHierarchy")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  bots          Bot[]
+  assignedChats Customer[]
+}
+
+model Bot {
+  id           String   @id @default(cuid())
+  ownerId      String
+  owner        User     @relation(fields: [ownerId], references: [id])
+  botTokenEnc  String
+  botUsername  String   @unique
+  botName      String?
+  greeting     String   @default("👋 Assalam o Alaikum! Aap ka message hamari support team ko mil gaya hai. Jald hi iska jawab milega. Shukriya!")
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+
+  customers    Customer[]
+}
+
+model Customer {
+  id              String    @id @default(cuid())
+  telegramId      BigInt
+  botId           String
+  bot             Bot       @relation(fields: [botId], references: [id])
+  firstName       String?
+  lastName        String?
+  telegramUser    String?
+  assignedAgentId String?
+  assignedAgent   User?     @relation(fields: [assignedAgentId], references: [id])
+  status          String    @default("unassigned") // unassigned | assigned | closed
+  lastMessageAt   DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+
+  messages       Message[]
+
+  @@unique([telegramId, botId])
+}
+
+model Message {
+  id                String   @id @default(cuid())
+  customerId        String
+  customer          Customer @relation(fields: [customerId], references: [id])
+  sender            String   // customer | agent | note
+  senderUserId      String?
+  text              String
+  mediaType         String?  // image | document
+  mediaUrl          String?  // /uploads/...
+  telegramMessageId Int?
+  createdAt         DateTime @default(now())
+}
