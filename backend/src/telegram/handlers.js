@@ -273,7 +273,15 @@ export async function sendMediaToCustomer(
     }
   );
 }
+export async function deleteTelegramMessage(botRecord, telegramId, messageId) {
+  const bot = runningBots.get(botRecord.id);
+  if (!bot) throw new Error("Bot active nahi hai");
 
+  return await bot.api.deleteMessage(
+    telegramId.toString(),
+    Number(messageId)
+  );
+}
 export function isBotRunning(botId) {
   return runningBots.has(botId);
 }
