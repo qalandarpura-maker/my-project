@@ -243,19 +243,39 @@ export async function deleteTelegramMessage(botRecord, telegramId, messageId) {
   }
 }
 
-export async function sendMediaToCustomer(botRecord, telegramId, filePath, fileName, caption, isImage) {
+export async function sendMediaToCustomer(
+  botRecord,
+  telegramId,
+  filePath,
+  fileName,
+  caption,
+  isImage
+) {
   const bot = runningBots.get(botRecord.id);
   if (!bot) throw new Error("Bot active nahi hai");
 
+  const chatId = telegramId.toString();
+  const inputFile = new InputFile(filePath, fileName);
+
   if (isImage) {
-    return bot.api.sendPhoto(telegramId.toString(), new InputFile(filePath, fileName), {
-      caption: caption || undefined,
-    });
-  } else {
-    return bot.api.sendDocument(telegramId.toString(), new InputFile(filePath, fileName), {
-      caption: caption || undefined,
-    });
+    try {
+      return await bot.api.sendPhoto(chatId, inputFile, {
+        caption: caption || undefined,
+      });
+    } catch (e) {
+      console.error("[bot] sendPhoto failed, trying document:", e.message);
+
+      // Telegram photo validation fail ho to file ke taur par bhej dein
+      return await bot.api.sendDocument(chatId, new InputFile(filePath, fileName), {
+        caption: caption || undefined,
+      });
+    }
   }
+
+  return bot.api.sendDocument(chatId, inputFile, {
+    caption: caption || undefined,
+  });
+}
 }
 
 export function isBotRunning(botId) {
