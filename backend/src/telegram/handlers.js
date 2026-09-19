@@ -227,22 +227,6 @@ export function getRunningBot(botId) {
   return runningBots.get(botId);
 }
 
-export async function sendToCustomer(botRecord, telegramId, text) {
-  const bot = runningBots.get(botRecord.id);
-  if (!bot) throw new Error("Bot active nahi hai");
-  return bot.api.sendMessage(telegramId.toString(), text);
-}
-
-export async function deleteTelegramMessage(botRecord, telegramId, messageId) {
-  const bot = runningBots.get(botRecord.id);
-  if (!bot) return;
-  try {
-    await bot.api.deleteMessage(telegramId.toString(), messageId);
-  } catch (e) {
-    console.error("[bot] telegram delete fail:", e.message);
-  }
-}
-
 export async function sendMediaToCustomer(
   botRecord,
   telegramId,
@@ -255,27 +239,39 @@ export async function sendMediaToCustomer(
   if (!bot) throw new Error("Bot active nahi hai");
 
   const chatId = telegramId.toString();
-  const inputFile = new InputFile(filePath, fileName);
 
   if (isImage) {
     try {
-      return await bot.api.sendPhoto(chatId, inputFile, {
-        caption: caption || undefined,
-      });
+      return await bot.api.sendPhoto(
+        chatId,
+        new InputFile(filePath, fileName),
+        {
+          caption: caption || undefined,
+        }
+      );
     } catch (e) {
-      console.error("[bot] sendPhoto failed, trying document:", e.message);
+      console.error(
+        "[bot] sendPhoto failed, trying document:",
+        e.message
+      );
 
-      // Telegram photo validation fail ho to file ke taur par bhej dein
-      return await bot.api.sendDocument(chatId, new InputFile(filePath, fileName), {
-        caption: caption || undefined,
-      });
+      return await bot.api.sendDocument(
+        chatId,
+        new InputFile(filePath, fileName),
+        {
+          caption: caption || undefined,
+        }
+      );
     }
   }
 
-  return bot.api.sendDocument(chatId, inputFile, {
-    caption: caption || undefined,
-  });
-}
+  return await bot.api.sendDocument(
+    chatId,
+    new InputFile(filePath, fileName),
+    {
+      caption: caption || undefined,
+    }
+  );
 }
 
 export function isBotRunning(botId) {
