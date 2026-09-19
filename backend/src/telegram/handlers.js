@@ -227,6 +227,13 @@ export function getRunningBot(botId) {
   return runningBots.get(botId);
 }
 
+export async function sendToCustomer(botRecord, telegramId, text) {
+  const bot = runningBots.get(botRecord.id);
+  if (!bot) throw new Error("Bot active nahi hai");
+
+  return await bot.api.sendMessage(telegramId.toString(), text);
+}
+
 export async function sendMediaToCustomer(
   botRecord,
   telegramId,

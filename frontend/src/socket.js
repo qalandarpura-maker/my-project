@@ -6,8 +6,9 @@ export function connectSocket(token) {
   if (socket) {
     socket.disconnect();
   }
+  const url = import.meta.env.VITE_SOCKET_URL || undefined;
   // websocket preferred, lekin polling fallback bhi rakho (corporate proxies ke liye)
-  socket = io({ auth: { token }, transports: ["websocket", "polling"] });
+  socket = io(url, { auth: { token }, transports: ["websocket", "polling"] });
   return socket;
 }
 

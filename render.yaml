@@ -1,0 +1,88 @@
+# Render "Infrastructure as Code" config.
+# Is file ko GitHub repo ke root mein rakho. Render dashboard se "Blueprint" ya
+# "New Web Service" -> "Connect repository" kar ke automatically services detect hongi.
+#
+# IMPORTANT: Sab secret values (JWT_SECRET, BOT_TOKEN_SECRET, R2_ACCESS_KEY_ID, etc.)
+# Render dashboard ke Environment tab mein manually add karein. Ye file sirf structure define karti hai.
+
+services:
+  # PostgreSQL database
+  - type: pserv
+    name: wolf-bots-postgres
+    runtime: postgres
+    plan: starter
+    region: ohio
+    ipAllowList: []
+    envVars:
+      - key: POSTGRES_DB
+        value: telegram_support
+      - key: POSTGRES_USER
+        generateValue: true
+      - key: POSTGRES_PASSWORD
+        generateValue: true
+
+  # Backend API + Telegram bot polling
+  - type: web
+    name: wolf-bots-backend
+    runtime: node
+    region: ohio
+    plan: standard
+    rootDir: backend
+    buildCommand: npm install && npm run db:generate && npm run db:deploy
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wolf-bots-postgres
+          property: connectionString
+      # Render automatically PORT set karta hai
+      - key: PORT
+        value: 10000
+      # Neeche wali values Render dashboard mein set karein
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES
+        value: 7d
+      - key: OWNER_USERNAME
+        sync: false
+      - key: OWNER_PASSWORD
+        sync: false
+      - key: OWNER_NAME
+        value: Owner
+      - key: BOT_TOKEN_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      # Cloudflare R2 (optional lekin production ke liye recommended)
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_PUBLIC_URL
+        sync: false
+
+  # Frontend static site (React + Vite)
+  - type: static
+    name: wolf-bots-frontend
+    runtime: static
+    region: ohio
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      # Build time pe ye values available honi chahiye
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_SOCKET_URL
+        sync: false
+
+# Note: Agar aap Render free tier use karte hain to backend 15 min inactivity ke baad
+# sleep ho jayega aur Telegram bot polling band ho jayegi. Is se bachne ke liye
+# either paid "Standard" plan use karein, ya external health ping setup karein.
