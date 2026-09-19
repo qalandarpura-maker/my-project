@@ -1,14 +1,18 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
-const endpoint = process.env.R2_ENDPOINT;
-const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-const bucket = process.env.R2_BUCKET_NAME;
+const trim = (v) => (typeof v === "string" ? v.trim() : "");
+
+const endpoint = trim(process.env.R2_ENDPOINT);
+const accessKeyId = trim(process.env.R2_ACCESS_KEY_ID);
+const secretAccessKey = trim(process.env.R2_SECRET_ACCESS_KEY);
+const bucket = trim(process.env.R2_BUCKET_NAME);
 
 export const isR2Configured = Boolean(endpoint && accessKeyId && secretAccessKey && bucket);
 
+const PUBLIC_URL = trim(process.env.R2_PUBLIC_URL);
+
 if (isR2Configured) {
-  if (!process.env.R2_PUBLIC_URL) {
+  if (!PUBLIC_URL) {
     console.warn("[r2] R2 configured hai lekin R2_PUBLIC_URL set nahi — public access fail ho sakta hai");
   }
   console.log("[r2] Cloudflare R2 storage enabled");
@@ -26,15 +30,34 @@ export function getR2Client() {
     client = new S3Client({
       region: "auto",
       endpoint,
+      forcePathStyle: true,
       credentials: { accessKeyId, secretAccessKey },
     });
   }
   return client;
 }
 
+export async function testR2Connection() {
+  if (!isR2Configured) {
+    return { ok: false, reason: "R2 env vars incomplete", configured: false };
+  }
+  const s3 = getR2Client();
+  try {
+    await s3.send(new ListObjectsV2Command({ Bucket: bucket, MaxKeys: 1 }));
+    return { ok: true, configured: true };
+  } catch (e) {
+    return {
+      ok: false,
+      configured: true,
+      name: e?.name || "Error",
+      message: e?.message || String(e),
+    };
+  }
+}
+
 export function getR2PublicUrl(key) {
-  if (process.env.R2_PUBLIC_URL) {
-    const base = process.env.R2_PUBLIC_URL.replace(/\/$/, "");
+  if (PUBLIC_URL) {
+    const base = PUBLIC_URL.replace(/\/$/, "");
     return `${base}/${key}`;
   }
   const ep = endpoint.replace(/\/$/, "");

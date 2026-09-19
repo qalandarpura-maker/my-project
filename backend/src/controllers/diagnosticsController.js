@@ -1,5 +1,5 @@
 import prisma from "../lib/prisma.js";
-import { isR2Configured } from "../lib/r2.js";
+import { isR2Configured, testR2Connection } from "../lib/r2.js";
 
 export async function diagnostics(req, res) {
   const r2Endpoint = Boolean(process.env.R2_ENDPOINT);
@@ -8,6 +8,8 @@ export async function diagnostics(req, res) {
   );
   const r2Bucket = Boolean(process.env.R2_BUCKET_NAME);
   const r2Public = Boolean(process.env.R2_PUBLIC_URL);
+
+  const connection = await testR2Connection();
 
   const stats = await prisma.message.aggregate({
     where: { mediaUrl: { not: null } },
@@ -32,6 +34,7 @@ export async function diagnostics(req, res) {
       endpoint: process.env.R2_ENDPOINT || null,
       bucket: process.env.R2_BUCKET_NAME || null,
     },
+    r2ConnectionTest: connection,
     storageMode: isR2Configured ? "r2" : "local",
     totalMediaMessages: stats._count.id,
     recentMedia,
