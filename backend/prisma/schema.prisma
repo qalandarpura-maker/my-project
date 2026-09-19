@@ -2,8 +2,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// PostgreSQL par switch karne ke liye yahan "provider" ko "sqlite" se "postgresql"
-// karo aur .env me DATABASE_URL ko postgres connection string se replace karo.
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -43,7 +41,7 @@ model Customer {
   id              String    @id @default(cuid())
   telegramId      BigInt
   botId           String
-  bot             Bot       @relation(fields: [botId], references: [id])
+  bot             Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
   firstName       String?
   lastName        String?
   telegramUser    String?
@@ -51,22 +49,27 @@ model Customer {
   assignedAgent   User?     @relation(fields: [assignedAgentId], references: [id])
   status          String    @default("unassigned") // unassigned | assigned | closed
   lastMessageAt   DateTime  @default(now())
+  unreadCount     Int       @default(0)
   createdAt       DateTime  @default(now())
 
   messages       Message[]
 
   @@unique([telegramId, botId])
+  @@index([assignedAgentId, status])
+  @@index([lastMessageAt])
 }
 
 model Message {
   id                String   @id @default(cuid())
   customerId        String
-  customer          Customer @relation(fields: [customerId], references: [id])
+  customer          Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   sender            String   // customer | agent | note
   senderUserId      String?
   text              String
   mediaType         String?  // image | document
-  mediaUrl          String?  // /uploads/...
+  mediaUrl          String?  // /uploads/... or R2 public URL
   telegramMessageId Int?
   createdAt         DateTime @default(now())
+
+  @@index([customerId, createdAt])
 }

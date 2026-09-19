@@ -9,18 +9,22 @@ Ye system ek customer support bot hai jisme:
 
 ## Install & Run (local)
 
-Requirements: Node.js v18+.
+Requirements: Node.js v18+, PostgreSQL. Local PostgreSQL ke liye `docker-compose.yml` included hai.
 
 ```bash
-# Backend
+# 1. PostgreSQL start karo
+docker compose up -d
+
+# 2. Backend
 cd backend
 npm install
 copy .env.example .env        # (Windows) phir .env me apni values daalo
-npm run db:push               # SQLite DB banao
+npm run db:generate           # Prisma client generate karo
+npm run db:migrate            # Database migrate karo
 npm run seed                  # Owner account banao (OWNER_USERNAME/PASSWORD se)
 npm run dev                   # http://localhost:4000
 
-# Alag terminal me: Frontend
+# 3. Alag terminal me: Frontend
 cd frontend
 npm install
 npm run dev                   # http://localhost:5173
@@ -28,7 +32,7 @@ npm run dev                   # http://localhost:5173
 
 Frontend me Vite proxy `/api` ko `http://localhost:4000` par bhejta hai, is liye browser me sirf `http://localhost:5173` use karo.
 
-Default owner login: `boss` / `owner123` (`.env` me `OWNER_USERNAME` / `OWNER_PASSWORD` change karo).
+Default owner login `.env` me `OWNER_USERNAME` / `OWNER_PASSWORD` se set hota hai. Production me inhe zaroor change karo.
 
 ### Bot add karna
 
@@ -52,55 +56,66 @@ Default owner login: `boss` / `owner123` (`.env` me `OWNER_USERNAME` / `OWNER_PA
 
 **Note:** Bot token new hone par botal must `@BotFather` se commands (e.g. `/start`) enable honghon; koi extra setup nahi.
 
-## Production me chalana
+## Production me chalana (Render)
 
-### 1. PostgreSQL pe switch (recommended for production)
+### 1. Render PostgreSQL
 
-`backend/prisma/schema.prisma` me:
+Render Dashboard me ek **PostgreSQL** database banao. Iska **Internal Database URL** environment variable `DATABASE_URL` me daalo.
 
-```prisma
-datasource db {
-  provider = "postgresql"      // was: sqlite
-  url      = env("DATABASE_URL")
-}
+### 2. Render Web Service (Backend)
+
+- **Build command:** `npm install && npm run db:generate && npm run db:deploy`
+- **Start command:** `npm start`
+
+Required environment variables:
+
+```env
+DATABASE_URL="postgresql://..."
+JWT_SECRET="long-random-string"
+BOT_TOKEN_SECRET="exactly-32-characters-long"
+OWNER_USERNAME="boss"
+OWNER_PASSWORD="strong-owner-password"
+OWNER_NAME="Owner"
+FRONTEND_URL="https://your-frontend.onrender.com"
+# R2 ke liye neeche dekhein
 ```
 
-Phir:
+Pehli deploy ke baad Render shell me ja kar seed run karo:
 
 ```bash
 cd backend
-npx prisma generate
-npx prisma migrate dev --name init   # ya: npx prisma db push
 npm run seed
-```
-
-`.env` me:
-
-```
-DATABASE_URL="postgresql://user:password@host:5432/telegram_support"
-```
-
-### 2. Backend serve karna
-
-```bash
-cd backend
-npm start           # PORT (default 4000)
 ```
 
 ### 3. Frontend serve karna
 
-Build karke kisi hosting (Vercel/Netlify/Nginx) par daalo:
+Render static site ya Vercel/Netlify par frontend deploy karo:
 
 ```bash
 cd frontend
-npm run build       # dist/ folder banega
+npm install
+npm run build
 ```
 
-Production me `/api` aur `/socket.io` proxy khud set karo (backend ko public URL par expose karo). Frontend me `FRONTEND_URL` backend ke `.env` me public origin ka comma-separated list daalo (CORS ke liye).
+Build me `FRONTEND_URL` se CORS allow hoga. Multiple origins comma-separated de sakte hain.
 
-### 4. Bot long-polling note
+### 4. Cloudflare R2 (Media uploads)
 
-Backend multiple bot tokens ko long-polling se run karta hai. Production me 1 bot process hi system rakhta hai. Kisi bhi option me backend public IP par hone ki zaroorat nahi (polling outbound hai). Saath me both server (backend) ek hi VPS par rakho taake 24/7 chale.
+Agar aap images/documents Cloudflare R2 pe store karna chahte hain, bucket banao aur usse public access enable karo. Phir backend env vars me daalo:
+
+```env
+R2_ENDPOINT="https://<account-id>.r2.cloudflarestorage.com"
+R2_ACCESS_KEY_ID="..."
+R2_SECRET_ACCESS_KEY="..."
+R2_BUCKET_NAME="wolf-bots-uploads"
+R2_PUBLIC_URL="https://pub-<hash>.r2.dev"   # optional: custom public domain
+```
+
+Agar R2 env vars missing hain to uploads local disk pe store honge (sirf local dev ke liye recommended).
+
+### 5. Bot long-polling note
+
+Backend multiple bot tokens ko long-polling se run karta hai. Production me 1 bot process hi system rakhta hai. Backend ko public IP ki zaroorat nahi (polling outbound hai).
 
 ## API Overview
 
@@ -117,14 +132,16 @@ Backend multiple bot tokens ko long-polling se run karta hai. Production me 1 bo
 | POST | `/api/admin/agents` | ADMIN | Agent banao |
 | GET | `/api/staff/agents` | OWNER/ADMIN | Agents list (assign dropdown) |
 | GET | `/api/conversations` | All | Conversations (staff = sab, agent = assigned) |
+| GET | `/api/conversations/unread-count` | All | Total unread messages count |
 | GET | `/api/conversations/:id` | All | Messages |
+| POST | `/api/conversations/:id/read` | All (authorized) | Conversation mark as read |
 | POST | `/api/conversations/:id/assign` | OWNER/ADMIN | Agent assign/forward |
 | POST | `/api/conversations/:id/reply` | All (authorized) | Customer ko reply |
 | POST | `/api/conversations/:id/send-media` | All (authorized) | Image/file customer ko bhejo (multipart: `file`, `caption`) |
 | POST | `/api/conversations/:id/note` | OWNER/ADMIN | Agent ke liye private note (customer ko nahi jata) |
 | POST | `/api/conversations/:id/note-media` | OWNER/ADMIN | Agent ke liye note me image/file |
 | DELETE | `/api/conversations/:id/messages/:messageId` | Staff/own agent | Message delete (Telegram side se bhi) |
-| POST | `/api/conversations/:id/close` | All | Conversation band |
+| POST | `/api/conversations/:id/close` | Staff / assigned agent | Conversation band |
 
 ## Project Structure
 

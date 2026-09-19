@@ -1,7 +1,8 @@
+import fs from "fs";
 import prisma from "../lib/prisma.js";
 import { sendToCustomer, sendMediaToCustomer, deleteTelegramMessage } from "../telegram/handlers.js";
 import { emitAgent, emitStaff } from "../lib/socket.js";
-import { saveBuffer, extForMime, getFilePath } from "../lib/uploads.js";
+import { saveUpload, extForMime, deleteUpload, getLocalFilePath } from "../lib/uploads.js";
 
 async function customerSummary(customer) {
   const lastMsg = await prisma.message.findFirst({
@@ -10,7 +11,7 @@ async function customerSummary(customer) {
   });
   let lastMessage = lastMsg?.text || null;
   if (!lastMessage && lastMsg?.mediaType) lastMessage = lastMsg.mediaType === "image" ? "(image)" : "(document)";
-  if (!lastMessage && lastMsg?.sender === "note") lastMessage = "📝 note";
+  if (!lastMessage && lastMsg?.sender === "note") lastMessage = "note";
   return {
     id: customer.id,
     telegramId: customer.telegramId.toString(),
@@ -25,7 +26,19 @@ async function customerSummary(customer) {
     lastMessageAt: customer.lastMessageAt,
     lastMessage,
     lastSender: lastMsg?.sender || null,
+    unreadCount: customer.unreadCount || 0,
   };
+}
+
+async function getUploadBuffer(url) {
+  if (!url) return null;
+  if (url.startsWith("/uploads/")) {
+    const name = url.split("/").pop();
+    return fs.readFileSync(getLocalFilePath(name));
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Media fetch fail: ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
 
 function buildWhere(req) {
@@ -44,6 +57,14 @@ export async function listCustomers(req, res) {
   const list = [];
   for (const c of customers) list.push(await customerSummary(c));
   res.json({ customers: list });
+}
+
+export async function getUnreadCount(req, res) {
+  const result = await prisma.customer.aggregate({
+    where: buildWhere(req),
+    _sum: { unreadCount: true },
+  });
+  res.json({ count: result._sum.unreadCount || 0 });
 }
 
 export async function getConversation(req, res) {
@@ -69,6 +90,34 @@ export async function getConversation(req, res) {
   });
 }
 
+export async function markAsRead(req, res) {
+  const customer = await prisma.customer.findUnique({ where: { id: req.params.id } });
+  if (!customer) return res.status(404).json({ error: "Conversation nahi mila" });
+
+  const isStaff = req.user.role === "OWNER" || req.user.role === "ADMIN";
+  if (!isStaff && customer.assignedAgentId !== req.user.id) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  await prisma.customer.update({
+    where: { id: customer.id },
+    data: { unreadCount: 0 },
+  });
+
+  const updated = await prisma.customer.findUnique({
+    where: { id: customer.id },
+    include: { bot: true, assignedAgent: { select: { id: true, name: true } } },
+  });
+  const summary = await customerSummary(updated);
+
+  emitStaff("chat:updated", { customer: summary });
+  if (customer.assignedAgentId) {
+    emitAgent(customer.assignedAgentId, "chat:updated", { customer: summary });
+  }
+
+  res.json({ ok: true, customer: summary });
+}
+
 export async function assign(req, res) {
   const isStaff = req.user.role === "OWNER" || req.user.role === "ADMIN";
   if (!isStaff) return res.status(403).json({ error: "Forbidden" });
@@ -82,6 +131,8 @@ export async function assign(req, res) {
   const agent = await prisma.user.findFirst({ where: { id: agentId, role: "AGENT", active: true } });
   if (!agent) return res.status(400).json({ error: "Agent nahi mila" });
 
+  const previousAgentId = customer.assignedAgentId;
+
   await prisma.customer.update({
     where: { id: customer.id },
     data: { assignedAgentId: agentId, status: "assigned" },
@@ -92,10 +143,15 @@ export async function assign(req, res) {
     include: { bot: true, assignedAgent: { select: { id: true, name: true } } },
   });
 
-  emitAgent(agentId, "conversation:assigned", { customer: await customerSummary(updated) });
-  emitStaff("chat:updated", { customer: await customerSummary(updated) });
+  const summary = await customerSummary(updated);
 
-  // Forward ke sath note + images: customer ka aakhri message (text + image/document) note ke sath agent ko
+  if (previousAgentId && previousAgentId !== agentId) {
+    emitAgent(previousAgentId, "conversation:unassigned", { customerId: customer.id, customer: summary });
+  }
+
+  emitAgent(agentId, "conversation:assigned", { customer: summary });
+  emitStaff("chat:updated", { customer: summary });
+
   const noteText = (note || "").trim();
   const files = Array.isArray(req.files) ? req.files : [];
   const createdNotes = [];
@@ -109,8 +165,8 @@ export async function assign(req, res) {
     if (noteText) {
       const quoted = lastFromCustomer
         ? lastFromCustomer.text
-          ? `\n\n↩️ Customer: "${lastFromCustomer.text}"`
-          : "\n\n↩️ Customer ka image/document attach kiya gaya"
+          ? `\n\nCustomer: "${lastFromCustomer.text}"`
+          : "\n\nCustomer ka image/document attach kiya gaya"
         : "";
       const textNote = await prisma.message.create({
         data: {
@@ -127,7 +183,7 @@ export async function assign(req, res) {
 
     for (const file of files) {
       const ext = extForMime(file.mimetype);
-      const { url } = saveBuffer(file.buffer, ext);
+      const { url } = await saveUpload(file.buffer, file.originalname, file.mimetype);
       const isImage = file.mimetype.startsWith("image/");
       const m = await prisma.message.create({
         data: {
@@ -149,7 +205,7 @@ export async function assign(req, res) {
 
   res.json({
     ok: true,
-    customer: await customerSummary(updated),
+    customer: summary,
     note: createdNotes[0] || null,
     notes: createdNotes,
   });
@@ -171,15 +227,21 @@ export async function reply(req, res) {
 
   const sent = await sendToCustomer(customer.bot, customer.telegramId, text.trim());
 
-  const msg = await prisma.message.create({
-    data: {
-      customerId: customer.id,
-      sender: "agent",
-      senderUserId: req.user.id,
-      text: text.trim(),
-      telegramMessageId: sent.message_id,
-    },
-  });
+  const [msg] = await prisma.$transaction([
+    prisma.message.create({
+      data: {
+        customerId: customer.id,
+        sender: "agent",
+        senderUserId: req.user.id,
+        text: text.trim(),
+        telegramMessageId: sent.message_id,
+      },
+    }),
+    prisma.customer.update({
+      where: { id: customer.id },
+      data: { lastMessageAt: new Date() },
+    }),
+  ]);
 
   const updated = await prisma.customer.findUnique({
     where: { id: customer.id },
@@ -216,36 +278,52 @@ export async function sendMedia(req, res) {
   const file = req.file;
   if (!file) return res.status(400).json({ error: "file required" });
 
-  const ext = extForMime(file.mimetype);
-  const { name, url } = saveBuffer(file.buffer, ext);
+  const { url } = await saveUpload(file.buffer, file.originalname, file.mimetype);
   const caption = (req.body.caption || "").trim();
   const isImage = file.mimetype.startsWith("image/");
+  const fileName = file.originalname || `file${isImage ? ".jpg" : ""}`;
 
+  let tgMessageId = null;
   try {
-    const sent = await sendMediaToCustomer(
-      customer.bot,
-      customer.telegramId,
-      getFilePath(name),
-      name,
-      caption || undefined,
-      isImage
-    );
-    var tgMessageId = sent?.message_id;
+    const buffer = await getUploadBuffer(url);
+    const tempPath = getLocalFilePath(`tmp-${Date.now()}-${fileName}`);
+    fs.writeFileSync(tempPath, buffer);
+    try {
+      const sent = await sendMediaToCustomer(
+        customer.bot,
+        customer.telegramId,
+        tempPath,
+        fileName,
+        caption || undefined,
+        isImage
+      );
+      tgMessageId = sent?.message_id;
+    } finally {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch {}
+    }
   } catch (e) {
     return res.status(400).json({ error: "Image customer ko nahi bheji gayi: " + e.message });
   }
 
-  const msg = await prisma.message.create({
-    data: {
-      customerId: customer.id,
-      sender: "agent",
-      senderUserId: req.user.id,
-      text: caption,
-      mediaType: isImage ? "image" : "document",
-      mediaUrl: url,
-      telegramMessageId: tgMessageId,
-    },
-  });
+  const [msg] = await prisma.$transaction([
+    prisma.message.create({
+      data: {
+        customerId: customer.id,
+        sender: "agent",
+        senderUserId: req.user.id,
+        text: caption,
+        mediaType: isImage ? "image" : "document",
+        mediaUrl: url,
+        telegramMessageId: tgMessageId,
+      },
+    }),
+    prisma.customer.update({
+      where: { id: customer.id },
+      data: { lastMessageAt: new Date() },
+    }),
+  ]);
 
   const updated = await prisma.customer.findUnique({
     where: { id: customer.id },
@@ -311,8 +389,7 @@ export async function addNoteMedia(req, res) {
   const file = req.file;
   if (!file) return res.status(400).json({ error: "file required" });
 
-  const ext = extForMime(file.mimetype);
-  const { url } = saveBuffer(file.buffer, ext);
+  const { url } = await saveUpload(file.buffer, file.originalname, file.mimetype);
   const caption = (req.body.caption || "").trim();
   const isImage = file.mimetype.startsWith("image/");
 
@@ -355,8 +432,17 @@ export async function deleteMessage(req, res) {
     return res.status(403).json({ error: "Sirf apne bheje howe messages delete kar sakte ho" });
   }
 
+  // Agent sirf tab delete kar sakta hai jab ab bhi assigned ho
+  if (!isStaff && customer.assignedAgentId !== req.user.id) {
+    return res.status(403).json({ error: "Aap ab is conversation ke assigned agent nahi hain" });
+  }
+
   if (message.telegramMessageId) {
     await deleteTelegramMessage(customer.bot, customer.telegramId, message.telegramMessageId);
+  }
+
+  if (message.mediaUrl) {
+    await deleteUpload(message.mediaUrl);
   }
 
   await prisma.message.delete({ where: { id: message.id } });

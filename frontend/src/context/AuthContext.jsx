@@ -5,20 +5,52 @@ import { connectSocket, disconnectSocket } from "../socket.js";
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("user"));
-    } catch {
-      return null;
-    }
-  });
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const doLogout = useCallback(() => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    disconnectSocket();
+    setUser(null);
+  }, []);
 
   useEffect(() => {
+    let mounted = true;
     const token = localStorage.getItem("token");
-    if (token && localStorage.getItem("user")) {
-      connectSocket(token);
+    const cachedUser = localStorage.getItem("user");
+
+    async function validate() {
+      if (!token) {
+        if (mounted) setLoading(false);
+        return;
+      }
+      try {
+        const { data } = await api.get("/auth/me");
+        if (mounted) {
+          setUser(data.user);
+          localStorage.setItem("user", JSON.stringify(data.user));
+          connectSocket(token);
+        }
+      } catch (e) {
+        doLogout();
+      } finally {
+        if (mounted) setLoading(false);
+      }
     }
-  }, []);
+
+    // Seed immediate user from cache for faster first render, then validate
+    if (cachedUser && token) {
+      try {
+        setUser(JSON.parse(cachedUser));
+      } catch {}
+    }
+
+    validate();
+    return () => {
+      mounted = false;
+    };
+  }, [doLogout]);
 
   const login = useCallback(async (username, password) => {
     const { data } = await api.post("/auth/login", { username, password });
@@ -30,14 +62,19 @@ export function AuthProvider({ children }) {
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    disconnectSocket();
-    setUser(null);
-  }, []);
+    doLogout();
+  }, [doLogout]);
+
+  if (loading && !user) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-cloud">
+        <p className="text-slate-500">Loading...</p>
+      </div>
+    );
+  }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

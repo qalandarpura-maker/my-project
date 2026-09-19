@@ -1,6 +1,13 @@
 import crypto from "crypto";
 
-const KEY = process.env.BOT_TOKEN_SECRET || "dev-key-change-me-1234567890";
+const KEY = process.env.BOT_TOKEN_SECRET;
+
+if (!KEY) {
+  throw new Error("Missing required environment variable: BOT_TOKEN_SECRET");
+}
+if (KEY.length !== 32) {
+  console.warn("BOT_TOKEN_SECRET should be exactly 32 characters for best security.");
+}
 
 function getKey() {
   return crypto.createHash("sha256").update(KEY).digest();

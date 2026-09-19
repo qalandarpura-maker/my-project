@@ -3,7 +3,11 @@ import { io } from "socket.io-client";
 export let socket = null;
 
 export function connectSocket(token) {
-  socket = io({ auth: { token }, transports: ["websocket"] });
+  if (socket) {
+    socket.disconnect();
+  }
+  // websocket preferred, lekin polling fallback bhi rakho (corporate proxies ke liye)
+  socket = io({ auth: { token }, transports: ["websocket", "polling"] });
   return socket;
 }
 

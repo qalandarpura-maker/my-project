@@ -3,7 +3,11 @@ dist/
 build/
 *.log
 .env
-prisma/dev.db
-prisma/dev.db-journal
+backend/.env
+backend/prisma/dev.db
+backend/prisma/dev.db-journal
+backend/prisma/*.db
+backend/prisma/*.db-journal
+backend/uploads/
 uploads/
 .DS_Store

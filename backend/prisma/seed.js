@@ -4,10 +4,18 @@ import "dotenv/config";
 
 const prisma = new PrismaClient();
 
+function requireEnv(key) {
+  const value = process.env[key];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+  return value;
+}
+
 async function main() {
-  const username = process.env.OWNER_USERNAME || "boss";
-  const password = process.env.OWNER_PASSWORD || "owner123";
-  const name = process.env.OWNER_NAME || "Owner";
+  const username = requireEnv("OWNER_USERNAME");
+  const password = requireEnv("OWNER_PASSWORD");
+  const name = requireEnv("OWNER_NAME");
 
   const existing = await prisma.user.findFirst({ where: { role: "OWNER" } });
   if (existing) {
@@ -19,8 +27,8 @@ async function main() {
   const owner = await prisma.user.create({
     data: { name, username, passwordHash: hash, role: "OWNER" },
   });
-  console.log(`Owner ban gaya -> username: ${username} / password: ${password}`);
-  console.log(`Login pe apna role check karo: ${owner.role}`);
+  console.log(`Owner account ban gaya -> username: ${username} / role: ${owner.role}`);
+  console.log("Security ke liye OWNER_PASSWORD .env me zaroor change karo.");
 }
 
 main()

@@ -4,6 +4,10 @@ import { socket } from "../socket.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import ChatWindow from "./ChatWindow.jsx";
 
+const MIN_LIST_WIDTH = 200;
+const MAX_LIST_WIDTH = 640;
+const LIST_WIDTH_KEY = "inbox-list-width";
+
 export default function ChatWorkspace({ agentView = false }) {
   const { user } = useAuth();
   const isStaff = user && (user.role === "OWNER" || user.role === "ADMIN");
@@ -15,19 +19,32 @@ export default function ChatWorkspace({ agentView = false }) {
   const [loading, setLoading] = useState(true);
   const [assignTarget, setAssignTarget] = useState("");
   const [assignNote, setAssignNote] = useState("");
-  const [listWidth, setListWidth] = useState(320);
+  const [listWidth, setListWidth] = useState(() => {
+    try {
+      const saved = localStorage.getItem(LIST_WIDTH_KEY);
+      return saved ? Math.min(MAX_LIST_WIDTH, Math.max(MIN_LIST_WIDTH, parseInt(saved, 10))) : 320;
+    } catch {
+      return 320;
+    }
+  });
+  const listWidthRef = useRef(listWidth);
+  const [error, setError] = useState(null);
 
   function startListResize(e) {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = listWidth;
+    const startW = listWidthRef.current;
     const onMove = (ev) => {
-      const w = Math.min(640, Math.max(200, startW + ev.clientX - startX));
+      const w = Math.min(MAX_LIST_WIDTH, Math.max(MIN_LIST_WIDTH, startW + ev.clientX - startX));
+      listWidthRef.current = w;
       setListWidth(w);
     };
     const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      try {
+        localStorage.setItem(LIST_WIDTH_KEY, String(listWidthRef.current));
+      } catch {}
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -36,16 +53,15 @@ export default function ChatWorkspace({ agentView = false }) {
   useEffect(() => {
     (async () => {
       try {
+        setError(null);
         const { data } = await api.get("/conversations");
         setCustomers(data.customers);
         if (data.customers.length) {
           const first = data.customers[0];
-          const convo = await api.get(`/conversations/${first.id}`);
-          setActiveId(first.id);
-          setMessages(convo.data.messages);
-          setActive(convo.data.customer);
+          await select(first.id, { skipMarkRead: false });
         }
       } catch (e) {
+        setError("Conversations load nahi ho saki.");
         console.error(e);
       } finally {
         setLoading(false);
@@ -77,41 +93,86 @@ export default function ChatWorkspace({ agentView = false }) {
   useEffect(() => {
     if (!socket) return;
 
+    const bumpUnread = (customerId, incomingSender) => {
+      if (customerId === activeId) return;
+      if (incomingSender !== "customer") return;
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === customerId ? { ...c, unreadCount: (c.unreadCount || 0) + 1 } : c
+        )
+      );
+    };
+
     const onChatUpdate = (data) => {
       if (data.customerId === activeId) {
         if (data.messages?.length) setMessages((prev) => [...prev, ...data.messages]);
         if (data.notes?.length) setMessages((prev) => [...prev, ...data.notes]);
-        if (data.customer && !activeId) setActive(data.customer);
       } else if (data.customerId && data.customer) {
+        const incoming = data.messages?.at(-1);
         setCustomers((prev) => {
           const exists = prev.some((c) => c.id === data.customerId);
           if (exists) {
             return prev.map((c) =>
               c.id === data.customerId
-                ? { ...c, lastMessage: data.messages?.at(-1)?.text ?? c.lastMessage, lastSender: data.messages?.at(-1)?.sender ?? c.lastSender }
+                ? {
+                    ...c,
+                    lastMessage: incoming?.text ?? c.lastMessage,
+                    lastSender: incoming?.sender ?? c.lastSender,
+                    unreadCount:
+                      c.id === activeId
+                        ? 0
+                        : incoming?.sender === "customer"
+                        ? (c.unreadCount || 0) + 1
+                        : c.unreadCount || 0,
+                  }
                 : c
             );
           }
-          const merged = { ...data.customer, lastMessage: data.messages?.at(-1)?.text, lastSender: data.messages?.at(-1)?.sender };
-          const withoutClosed = data.customer.status !== "closed";
-          return withoutClosed ? [merged, ...prev] : prev;
+          const merged = {
+            ...data.customer,
+            lastMessage: incoming?.text,
+            lastSender: incoming?.sender,
+            unreadCount: data.customer.id === activeId ? 0 : data.customer.unreadCount || 0,
+          };
+          return data.customer.status !== "closed" ? [merged, ...prev] : prev;
         });
       }
+      bumpUnread(data.customerId, data.messages?.at(-1)?.sender);
       refreshCustomer(data.customerId, data.messages?.at(-1));
     };
 
     const onChatNew = (data) => {
       if (!data.customer) return;
-      const merged = {
-        ...data.customer,
-        lastMessage: data.messages?.at(-1)?.text ?? "(no text)",
-        lastSender: data.messages?.at(-1)?.sender,
-      };
+      const incoming = data.messages?.at(-1);
+      const isCustomerMessage = incoming?.sender === "customer";
       setCustomers((prev) => {
         const exists = prev.some((c) => c.id === data.customer.id);
         if (exists) {
-          return prev.map((c) => (c.id === data.customer.id ? { ...c, lastMessage: merged.lastMessage, lastSender: merged.lastSender, lastMessageAt: data.customer.lastMessageAt } : c)).sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+          return prev
+            .map((c) =>
+              c.id === data.customer.id
+                ? {
+                    ...c,
+                    lastMessage: incoming?.text ?? "(no text)",
+                    lastSender: incoming?.sender,
+                    lastMessageAt: data.customer.lastMessageAt,
+                    unreadCount:
+                      c.id === activeId
+                        ? 0
+                        : isCustomerMessage
+                        ? (c.unreadCount || 0) + 1
+                        : c.unreadCount || 0,
+                  }
+                : c
+            )
+            .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
         }
+        const merged = {
+          ...data.customer,
+          lastMessage: incoming?.text ?? "(no text)",
+          lastSender: incoming?.sender,
+          unreadCount: data.customer.id === activeId ? 0 : data.customer.unreadCount || 0,
+        };
         return [merged, ...prev];
       });
     };
@@ -134,6 +195,17 @@ export default function ChatWorkspace({ agentView = false }) {
           }
           return [data.customer, ...prev];
         });
+      }
+    };
+
+    const onUnassigned = (data) => {
+      if (agentView && data.customerId) {
+        setCustomers((prev) => prev.filter((c) => c.id !== data.customerId));
+        if (activeId === data.customerId) {
+          setActiveId(null);
+          setActive(null);
+          setMessages([]);
+        }
       }
     };
 
@@ -161,6 +233,7 @@ export default function ChatWorkspace({ agentView = false }) {
     socket.on("chat:new", onChatNew);
     socket.on("chat:updated", onChatUpdated);
     socket.on("conversation:assigned", onAssigned);
+    socket.on("conversation:unassigned", onUnassigned);
     socket.on("message:deleted", onMessageDeleted);
 
     return () => {
@@ -168,37 +241,58 @@ export default function ChatWorkspace({ agentView = false }) {
       socket.off("chat:new", onChatNew);
       socket.off("chat:updated", onChatUpdated);
       socket.off("conversation:assigned", onAssigned);
+      socket.off("conversation:unassigned", onUnassigned);
       socket.off("message:deleted", onMessageDeleted);
     };
-  }, [activeId, refreshCustomer]);
+  }, [activeId, refreshCustomer, agentView]);
 
-  async function select(id) {
-    const { data } = await api.get(`/conversations/${id}`);
-    setActiveId(id);
-    setMessages(data.messages);
-    setActive(data.customer);
+  async function select(id, options = {}) {
+    try {
+      const { data } = await api.get(`/conversations/${id}`);
+      setActiveId(id);
+      setMessages(data.messages);
+      setActive(data.customer);
+      setCustomers((prev) => prev.map((c) => (c.id === id ? { ...c, unreadCount: 0 } : c)));
+      if (!options.skipMarkRead) {
+        await api.post(`/conversations/${id}/read`).catch(() => {});
+      }
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   async function send(text) {
     if (!activeId) return;
-    const { data } = await api.post(`/conversations/${activeId}/reply`, { text });
-    setMessages((prev) => [...prev, data.message]);
+    try {
+      const { data } = await api.post(`/conversations/${activeId}/reply`, { text });
+      setMessages((prev) => [...prev, data.message]);
+    } catch (e) {
+      alert(e.response?.data?.error || "Reply fail");
+    }
   }
 
   async function sendMedia(file, caption = "") {
     if (!activeId || !file) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    if (caption) fd.append("caption", caption);
-    const { data } = await api.post(`/conversations/${activeId}/send-media`, fd);
-    setMessages((prev) => [...prev, data.message]);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (caption) fd.append("caption", caption);
+      const { data } = await api.post(`/conversations/${activeId}/send-media`, fd);
+      setMessages((prev) => [...prev, data.message]);
+    } catch (e) {
+      alert(e.response?.data?.error || "Media send fail");
+    }
   }
 
   async function deleteMessage(messageId) {
     if (!activeId) return;
     if (!window.confirm("Kya aap ye message delete karna chahte hain?")) return;
-    await api.delete(`/conversations/${activeId}/messages/${messageId}`);
-    setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    try {
+      await api.delete(`/conversations/${activeId}/messages/${messageId}`);
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+    } catch (e) {
+      alert(e.response?.data?.error || "Delete fail");
+    }
   }
 
   async function doAssign(e, files = []) {
@@ -208,17 +302,29 @@ export default function ChatWorkspace({ agentView = false }) {
     fd.append("agentId", assignTarget);
     fd.append("note", assignNote);
     for (const f of files) fd.append("files", f);
-    const { data } = await api.post(`/conversations/${activeId}/assign`, fd);
-    setActive(data.customer);
-    const notes = data.notes?.length ? data.notes : data.note ? [data.note] : [];
-    if (notes.length) setMessages((prev) => [...prev, ...notes]);
-    setAssignTarget("");
-    setAssignNote("");
+    try {
+      const { data } = await api.post(`/conversations/${activeId}/assign`, fd);
+      setActive(data.customer);
+      const notes = data.notes?.length ? data.notes : data.note ? [data.note] : [];
+      if (notes.length) setMessages((prev) => [...prev, ...notes]);
+      setAssignTarget("");
+      setAssignNote("");
+    } catch (e) {
+      alert(e.response?.data?.error || "Assign fail");
+    }
   }
 
   async function closeConvo() {
     if (!activeId) return;
-    await api.post(`/conversations/${activeId}/close`);
+    try {
+      await api.post(`/conversations/${activeId}/close`);
+      setCustomers((prev) => prev.filter((c) => c.id !== activeId));
+      setActiveId(null);
+      setActive(null);
+      setMessages([]);
+    } catch (e) {
+      alert(e.response?.data?.error || "Close fail");
+    }
   }
 
   function timeLabel(t) {
@@ -241,6 +347,7 @@ export default function ChatWorkspace({ agentView = false }) {
             {sorted.length} active {sorted.length === 1 ? "chat" : "chats"}
           </p>
         </div>
+        {error && <p className="bg-red-50 p-2 text-xs text-red-600">{error}</p>}
         <div className="flex-1 overflow-y-auto">
           {loading && <p className="p-4 text-sm text-slate-500">Loading...</p>}
           {sorted.map((c) => (
@@ -255,9 +362,16 @@ export default function ChatWorkspace({ agentView = false }) {
                 <span className="truncate text-sm font-semibold text-slate-800">
                   {c.firstName || c.telegramUser || c.telegramId}
                 </span>
-                <span className="ml-2 whitespace-nowrap text-[10px] text-slate-400">
-                  {timeLabel(c.lastMessageAt)}
-                </span>
+                <div className="ml-2 flex items-center gap-1.5">
+                  {(c.unreadCount || 0) > 0 && (
+                    <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                      {c.unreadCount > 99 ? "99+" : c.unreadCount}
+                    </span>
+                  )}
+                  <span className="whitespace-nowrap text-[10px] text-slate-400">
+                    {timeLabel(c.lastMessageAt)}
+                  </span>
+                </div>
               </div>
               <div className="mt-0.5 flex items-center justify-between gap-2">
                 <span className="truncate text-xs text-slate-500">

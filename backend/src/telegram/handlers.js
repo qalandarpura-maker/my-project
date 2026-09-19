@@ -2,9 +2,10 @@ import { Bot, InputFile } from "grammy";
 import prisma from "../lib/prisma.js";
 import { decryptToken } from "../lib/crypto.js";
 import { emitAgent, emitStaff } from "../lib/socket.js";
-import { saveBuffer, extForMime } from "../lib/uploads.js";
+import { saveUpload, extForMime, isAllowedMime } from "../lib/uploads.js";
 
 const runningBots = new Map(); // botId -> grammY instance
+const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE || 10 * 1024 * 1024); // default 10MB
 
 function getCustomerInfo(ctx) {
   const { id, first_name, last_name, username } = ctx.from || {};
@@ -19,63 +20,86 @@ function customerData(info, botRecord) {
     lastName: info.last_name,
     telegramUser: info.username,
     lastMessageAt: new Date(),
+    unreadCount: 0,
   };
 }
 
-async function upsertCustomer(ctx, botRecord) {
+async function upsertCustomer(ctx, botRecord, isInboundMessage = false) {
   const info = getCustomerInfo(ctx);
+  const existing = await prisma.customer.findUnique({
+    where: { telegramId_botId: { telegramId: BigInt(info.id), botId: botRecord.id } },
+  });
+
+  const wasClosed = existing?.status === "closed";
+
   return prisma.customer.upsert({
     where: { telegramId_botId: { telegramId: BigInt(info.id), botId: botRecord.id } },
-    create: customerData(info, botRecord),
+    create: { ...customerData(info, botRecord), unreadCount: isInboundMessage ? 1 : 0 },
     update: {
       firstName: info.first_name,
       lastName: info.last_name,
       telegramUser: info.username,
       lastMessageAt: new Date(),
+      ...(wasClosed && { status: "unassigned", assignedAgentId: null }),
+      ...(isInboundMessage && { unreadCount: { increment: 1 } }),
     },
   });
 }
 
-async function broadcastIncoming(customer, message, botRecord) {
-  const fresh = await prisma.message.findMany({
-    where: { customerId: customer.id },
-    orderBy: { createdAt: "asc" },
-  });
+function customerSummary(customer, botRecord) {
+  return {
+    ...customer,
+    telegramId: customer.telegramId.toString(),
+    botUsername: botRecord?.botUsername,
+  };
+}
 
-  const summaryCustomer = await prisma.customer.findUnique({
-    where: { id: customer.id },
-    include: { bot: true, assignedAgent: { select: { id: true, name: true } } },
-  });
+async function broadcastIncoming(customer, message, botRecord) {
+  const summaryCustomer = customerSummary(
+    await prisma.customer.findUnique({
+      where: { id: customer.id },
+      include: { bot: true, assignedAgent: { select: { id: true, name: true } } },
+    }),
+    botRecord
+  );
+
+  const payload = {
+    customerId: customer.id,
+    customer: summaryCustomer,
+    messages: [message],
+  };
 
   if (customer.assignedAgentId) {
-    emitAgent(customer.assignedAgentId, "chat:update", {
-      customerId: customer.id,
-      customer: summaryCustomer,
-      messages: [message],
-    });
+    emitAgent(customer.assignedAgentId, "chat:update", payload);
   }
-  emitStaff("chat:new", {
-    customer: summaryCustomer,
-    messages: fresh,
-    botUsername: botRecord.botUsername,
-  });
+  emitStaff("chat:new", payload);
 }
 
 async function downloadTelegramFile(bot, fileId) {
   const info = await bot.api.getFile(fileId);
   if (!info.file_path) throw new Error("File ka path nahi mila");
+  if (info.file_size && info.file_size > MAX_FILE_SIZE) {
+    throw new Error(`File bahut bada hai (max ${MAX_FILE_SIZE / 1024 / 1024}MB allowed)`);
+  }
+
   const rawUrl = `https://api.telegram.org/file/bot${bot.token}/${info.file_path}`;
   const res = await fetch(rawUrl);
   if (!res.ok) throw new Error(`Download fail: ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
+
   const ext = "." + (info.file_path.split(".").pop() || "jpg");
-  return saveBuffer(buf, ext);
+  const mime = info.mime_type || (ext === ".jpg" ? "image/jpeg" : "application/octet-stream");
+  if (!isAllowedMime(mime)) {
+    throw new Error(`File type allowed nahi hai: ${mime}`);
+  }
+
+  return saveUpload(buf, `telegram-${fileId}`, mime);
 }
 
 export function registerHandlers(bot, botRecord) {
   bot.command("start", async (ctx) => {
     try {
-      await upsertCustomer(ctx, botRecord);
+      await upsertCustomer(ctx, botRecord, false);
       const fresh = await prisma.bot.findUnique({ where: { id: botRecord.id } });
       const greeting =
         (fresh?.greeting || "").trim() ||
@@ -90,7 +114,7 @@ export function registerHandlers(bot, botRecord) {
     const text = ctx.message.text;
     const telegramMessageId = ctx.message.message_id;
     try {
-      const customer = await upsertCustomer(ctx, botRecord);
+      const customer = await upsertCustomer(ctx, botRecord, true);
       const message = await prisma.message.create({
         data: {
           customerId: customer.id,
@@ -109,8 +133,9 @@ export function registerHandlers(bot, botRecord) {
     const photo = ctx.message.photo;
     const fileId = photo[photo.length - 1].file_id;
     const caption = ctx.message.caption || "";
+    const telegramMessageId = ctx.message.message_id;
     try {
-      const customer = await upsertCustomer(ctx, botRecord);
+      const customer = await upsertCustomer(ctx, botRecord, true);
       const { url } = await downloadTelegramFile(bot, fileId);
       const message = await prisma.message.create({
         data: {
@@ -119,6 +144,7 @@ export function registerHandlers(bot, botRecord) {
           text: caption,
           mediaType: "image",
           mediaUrl: url,
+          telegramMessageId,
         },
       });
       await broadcastIncoming(customer, message, botRecord);
@@ -130,8 +156,9 @@ export function registerHandlers(bot, botRecord) {
   bot.on(":document", async (ctx) => {
     const doc = ctx.message.document;
     const caption = ctx.message.caption || "";
+    const telegramMessageId = ctx.message.message_id;
     try {
-      const customer = await upsertCustomer(ctx, botRecord);
+      const customer = await upsertCustomer(ctx, botRecord, true);
       const { url } = await downloadTelegramFile(bot, doc.file_id);
       const message = await prisma.message.create({
         data: {
@@ -140,6 +167,7 @@ export function registerHandlers(bot, botRecord) {
           text: caption,
           mediaType: doc.mime_type && doc.mime_type.startsWith("image/") ? "image" : "document",
           mediaUrl: url,
+          telegramMessageId,
         },
       });
       await broadcastIncoming(customer, message, botRecord);
@@ -147,6 +175,14 @@ export function registerHandlers(bot, botRecord) {
       console.error("document handler error:", e.message);
     }
   });
+}
+
+async function markBotStatus(botId, status) {
+  try {
+    await prisma.bot.update({ where: { id: botId }, data: { status } });
+  } catch (e) {
+    console.error(`[bot] status update fail ${botId}:`, e.message);
+  }
 }
 
 export async function startBot(botRecord) {
@@ -165,6 +201,7 @@ export async function startBot(botRecord) {
     return bot;
   } catch (e) {
     console.error(`[bot] start fail (${botRecord.botUsername}):`, e.message);
+    await markBotStatus(botRecord.id, "inactive");
     throw e;
   }
 }

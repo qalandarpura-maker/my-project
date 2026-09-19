@@ -10,7 +10,8 @@ import Admins from "./pages/Admins.jsx";
 import Bots from "./pages/Bots.jsx";
 
 function Protected({ children }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return null;
   if (!user) return <Navigate to="/login" replace />;
   return children;
 }

@@ -1,13 +1,16 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { api } from "../api.js";
+import { socket } from "../socket.js";
 
-function Item({ to, children, end }) {
+function Item({ to, children, end, badge }) {
   return (
     <NavLink
       to={to}
       end={end}
       className={({ isActive }) =>
-        `block rounded-lg px-4 py-2.5 text-sm font-medium transition ${
+        `relative block rounded-lg px-4 py-2.5 text-sm font-medium transition ${
           isActive
             ? "bg-gradient-to-br from-brand to-lemon text-white shadow-md shadow-lemon/30"
             : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
@@ -15,6 +18,11 @@ function Item({ to, children, end }) {
       }
     >
       {children}
+      {badge ? (
+        <span className="absolute right-2 top-1/2 flex h-5 min-w-[1.25rem] -translate-y-1/2 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      ) : null}
     </NavLink>
   );
 }
@@ -22,8 +30,26 @@ function Item({ to, children, end }) {
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [unread, setUnread] = useState(0);
 
   const isStaff = user.role === "OWNER" || user.role === "ADMIN";
+
+  useEffect(() => {
+    async function fetchUnread() {
+      try {
+        const { data } = await api.get("/conversations/unread-count");
+        setUnread(data.count || 0);
+      } catch {
+        setUnread(0);
+      }
+    }
+    fetchUnread();
+    if (!socket) return;
+    const events = ["chat:new", "chat:update", "chat:updated", "conversation:assigned", "conversation:unassigned", "message:deleted"];
+    const handler = () => fetchUnread();
+    events.forEach((e) => socket.on(e, handler));
+    return () => events.forEach((e) => socket.off(e, handler));
+  }, []);
 
   return (
     <div className="flex h-full bg-cloud">
@@ -49,11 +75,11 @@ export default function Layout() {
         <nav className="flex-1 space-y-1 p-3">
           {isStaff ? (
             <>
-              <Item to="/inbox">Inbox</Item>
+              <Item to="/inbox" badge={unread}>Inbox</Item>
               <Item to="/agents">Agents</Item>
             </>
           ) : (
-            <Item to="/my-chats">My Chats</Item>
+            <Item to="/my-chats" badge={unread}>My Chats</Item>
           )}
           {user.role === "OWNER" && (
             <>

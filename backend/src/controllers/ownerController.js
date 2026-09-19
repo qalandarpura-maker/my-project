@@ -67,7 +67,7 @@ export async function removeBot(req, res) {
   if (!bot) return res.status(404).json({ error: "Bot nahi mila" });
 
   await stopBot(bot.id);
-  await prisma.customer.deleteMany({ where: { botId: bot.id } });
+  // Cascade delete se related customers/messages automatically delete honge
   await prisma.bot.delete({ where: { id: bot.id } });
 
   emitUser(req.user.id, "bots:update", null);
@@ -141,7 +141,7 @@ export function createAgent(req, res) {
 
 export async function listByRole(req, res, role) {
   const users = await prisma.user.findMany({
-    where: { role, active: true },
+    where: { role, active: true, createdById: req.user.id },
     orderBy: { createdAt: "desc" },
     select: { id: true, name: true, username: true, role: true, createdAt: true },
   });

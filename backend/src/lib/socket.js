@@ -1,4 +1,5 @@
 import { Server } from "socket.io";
+import prisma from "./prisma.js";
 
 let io = null;
 
@@ -13,6 +14,14 @@ export function initSocket(httpServer, corsOrigin) {
       if (!token) return next(new Error("unauthorized"));
       const { verifyToken } = await import("./jwt.js");
       const payload = verifyToken(token);
+
+      // User ab bhi active hai ya nahi check karo
+      const user = await prisma.user.findUnique({
+        where: { id: payload.id },
+        select: { id: true, role: true, active: true },
+      });
+      if (!user || !user.active) return next(new Error("unauthorized"));
+
       socket.user = payload;
       next();
     } catch (e) {

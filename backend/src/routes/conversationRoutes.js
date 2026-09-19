@@ -1,9 +1,12 @@
 import { Router } from "express";
 import multer from "multer";
 import { requireAuth } from "../middleware/auth.js";
+import { fileFilter } from "../lib/uploads.js";
 import {
   listCustomers,
   getConversation,
+  getUnreadCount,
+  markAsRead,
   assign,
   reply,
   sendMedia,
@@ -16,11 +19,16 @@ import {
 const router = Router();
 router.use(requireAuth);
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter,
+});
 
-// Agent ko assign karne ke liye agents ka list (staff ke liye)
 router.get("/", listCustomers);
+router.get("/unread-count", getUnreadCount);
 router.get("/:id", getConversation);
+router.post("/:id/read", markAsRead);
 router.post("/:id/assign", upload.array("files", 10), assign);
 router.post("/:id/reply", reply);
 router.post("/:id/send-media", upload.single("file"), sendMedia);
