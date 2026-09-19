@@ -1,5 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 
+function BrokenImage({ type = "image" }) {
+  return (
+    <div className="mb-1 flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-4 text-xs text-red-500">
+      {type === "image" ? "🖼 Image load nahi hui" : "📄 File load nahi hui"}
+    </div>
+  );
+}
+
+function MediaImage({ src, className }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <BrokenImage type="image" />;
+  return (
+    <img
+      src={src}
+      alt="image"
+      onError={() => setFailed(true)}
+      className={className}
+    />
+  );
+}
+
 function fmtTime(t) {
   return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -13,11 +34,7 @@ function MessageBubble({ m, onDelete, canDelete }) {
             📝 Note — sirf agent ko
           </p>
           {m.mediaType === "image" && m.mediaUrl && (
-            <img
-              src={m.mediaUrl}
-              alt="note image"
-              className="mb-1 max-h-64 max-w-full rounded-lg"
-            />
+            <MediaImage src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg" />
           )}
           {m.mediaType === "document" && m.mediaUrl && (
             <a
@@ -68,11 +85,7 @@ function MessageBubble({ m, onDelete, canDelete }) {
           }`}
         >
           {m.mediaType === "image" && m.mediaUrl && (
-            <img
-              src={m.mediaUrl}
-              alt="image"
-              className="mb-1 max-h-64 max-w-full rounded-lg"
-            />
+            <MediaImage src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg" />
           )}
           {m.mediaType === "document" && m.mediaUrl && (
             <a
@@ -414,11 +427,7 @@ export default function ChatWindow({
           {notes.map((m) => (
             <div key={m.id} className="rounded-lg border border-lemon/30 bg-lemon-soft p-3">
               {m.mediaType === "image" && m.mediaUrl && (
-                <img
-                  src={m.mediaUrl}
-                  alt="note"
-                  className="mb-2 max-h-52 w-full rounded-lg object-cover"
-                />
+                <MediaImage src={m.mediaUrl} className="mb-2 max-h-52 w-full rounded-lg object-cover" />
               )}
               {m.mediaType === "document" && m.mediaUrl && (
                 <a

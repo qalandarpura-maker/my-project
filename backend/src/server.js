@@ -4,6 +4,10 @@ import { createApp, attachSocket } from "./app.js";
 
 const PORT = process.env.PORT || 4000;
 
+process.on("unhandledRejection", (reason) => {
+  console.error("UNHANDLED REJECTION:", reason?.stack || reason);
+});
+
 async function main() {
   try {
     const app = await createApp();

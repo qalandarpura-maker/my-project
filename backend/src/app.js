@@ -63,6 +63,14 @@ export async function createApp() {
 
   app.use((req, res) => res.status(404).json({ error: "Not found" }));
 
+  // Global error handler — async errors bhi proper JSON denge
+  app.use((err, req, res, next) => {
+    console.error("[error]", err?.message || err);
+    if (res.headersSent) return next(err);
+    const status = err?.status || err?.statusCode || (err?.type === "entity.too.large" ? 413 : 500);
+    res.status(status).json({ error: err?.message || "Internal server error" });
+  });
+
   await startAllBots();
 
   return app;

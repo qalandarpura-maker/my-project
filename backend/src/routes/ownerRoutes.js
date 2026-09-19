@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { requireAuth, requireRole } from "../middleware/auth.js";
+import { diagnostics } from "../controllers/diagnosticsController.js";
 import {
   addBot,
   listBots,
@@ -15,6 +16,8 @@ import {
 
 const router = Router();
 router.use(requireAuth, requireRole("OWNER"));
+
+router.get("/diagnostics", diagnostics);
 
 router.post("/bots", addBot);
 router.get("/bots", listBots);

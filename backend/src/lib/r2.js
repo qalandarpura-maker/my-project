@@ -7,6 +7,17 @@ const bucket = process.env.R2_BUCKET_NAME;
 
 export const isR2Configured = Boolean(endpoint && accessKeyId && secretAccessKey && bucket);
 
+if (isR2Configured) {
+  if (!process.env.R2_PUBLIC_URL) {
+    console.warn("[r2] R2 configured hai lekin R2_PUBLIC_URL set nahi — public access fail ho sakta hai");
+  }
+  console.log("[r2] Cloudflare R2 storage enabled");
+} else {
+  console.warn(
+    "[r2] R2 NOT configured (endpoint/accessKey/secret/bucket ki zaroorat hai) — uploads local disk pe honge. Render pe local disk ephemeral hai."
+  );
+}
+
 let client = null;
 
 export function getR2Client() {

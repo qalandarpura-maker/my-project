@@ -182,9 +182,8 @@ export async function assign(req, res) {
     }
 
     for (const file of files) {
-      const ext = extForMime(file.mimetype);
-      const { url } = await saveUpload(file.buffer, file.originalname, file.mimetype);
       const isImage = file.mimetype.startsWith("image/");
+      const { url } = await saveUpload(file.buffer, file.originalname, file.mimetype);
       const m = await prisma.message.create({
         data: {
           customerId: customer.id,
@@ -278,10 +277,18 @@ export async function sendMedia(req, res) {
   const file = req.file;
   if (!file) return res.status(400).json({ error: "file required" });
 
-  const { url } = await saveUpload(file.buffer, file.originalname, file.mimetype);
   const caption = (req.body.caption || "").trim();
   const isImage = file.mimetype.startsWith("image/");
   const fileName = file.originalname || `file${isImage ? ".jpg" : ""}`;
+
+  let url;
+  try {
+    ({ url } = await saveUpload(file.buffer, file.originalname, file.mimetype));
+    console.log("[media] saved ->", url.startsWith("/uploads/") ? "local disk" : "cloud storage");
+  } catch (e) {
+    console.error("[media] upload fail:", e.message);
+    return res.status(500).json({ error: "Upload fail: " + e.message });
+  }
 
   let tgMessageId = null;
   try {
@@ -389,9 +396,17 @@ export async function addNoteMedia(req, res) {
   const file = req.file;
   if (!file) return res.status(400).json({ error: "file required" });
 
-  const { url } = await saveUpload(file.buffer, file.originalname, file.mimetype);
   const caption = (req.body.caption || "").trim();
   const isImage = file.mimetype.startsWith("image/");
+
+  let url;
+  try {
+    ({ url } = await saveUpload(file.buffer, file.originalname, file.mimetype));
+    console.log("[note-media] saved ->", url.startsWith("/uploads/") ? "local disk" : "cloud storage");
+  } catch (e) {
+    console.error("[note-media] upload fail:", e.message);
+    return res.status(500).json({ error: "Upload fail: " + e.message });
+  }
 
   const msg = await prisma.message.create({
     data: {
