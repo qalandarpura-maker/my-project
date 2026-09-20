@@ -101,7 +101,7 @@ function mimeForExt(ext) {
   return EXT_MIME[(ext || "").toLowerCase()] || null;
 }
 
-async function downloadTelegramFile(bot, fileId) {
+async function downloadTelegramFile(bot, fileId, mimeHint) {
   const info = await bot.api.getFile(fileId);
   if (!info.file_path) throw new Error("File ka path nahi mila");
   if (info.file_size && info.file_size > MAX_FILE_SIZE) {
@@ -113,9 +113,10 @@ async function downloadTelegramFile(bot, fileId) {
   if (!res.ok) throw new Error(`Download fail: ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
 
-  // Telegram getFile response me mime_type nahi aata, is liye extension se detect karo
+  // Telegram getFile response me mime_type nahi aata. Pehle message-object ka
+  // mimeHint try karo (video.mime_type etc.), phir extension detection, phir fallback.
   const ext = "." + (info.file_path.split(".").pop() || "jpg");
-  const mime = mimeForExt(ext) || info.mime_type || "application/octet-stream";
+  const mime = mimeHint || mimeForExt(ext) || info.mime_type || "application/octet-stream";
   if (!isAllowedMime(mime)) {
     throw new Error(`File type allowed nahi hai: ${mime}`);
   }
@@ -187,7 +188,7 @@ export function registerHandlers(bot, botRecord) {
     const telegramMessageId = ctx.message.message_id;
     try {
       const customer = await upsertCustomer(ctx, botRecord, true);
-      const { url } = await downloadTelegramFile(bot, fileId);
+      const { url } = await downloadTelegramFile(bot, fileId, video.mime_type);
       const message = await prisma.message.create({
         data: {
           customerId: customer.id,
@@ -211,7 +212,7 @@ export function registerHandlers(bot, botRecord) {
     const telegramMessageId = ctx.message.message_id;
     try {
       const customer = await upsertCustomer(ctx, botRecord, true);
-      const { url } = await downloadTelegramFile(bot, fileId);
+      const { url } = await downloadTelegramFile(bot, fileId, anim.mime_type);
       const message = await prisma.message.create({
         data: {
           customerId: customer.id,
@@ -234,7 +235,7 @@ export function registerHandlers(bot, botRecord) {
     const telegramMessageId = ctx.message.message_id;
     try {
       const customer = await upsertCustomer(ctx, botRecord, true);
-      const { url } = await downloadTelegramFile(bot, doc.file_id);
+      const { url } = await downloadTelegramFile(bot, doc.file_id, doc.mime_type);
       const message = await prisma.message.create({
         data: {
           customerId: customer.id,

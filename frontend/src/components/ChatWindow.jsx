@@ -368,7 +368,11 @@ export default function ChatWindow({
             {active.lastName ? ` ${active.lastName}` : ""}
           </h3>
           <p className="text-xs text-slate-500">
-            @{active.botUsername || "?"} ·{" "}
+            {canAssign && (
+              <>
+                @{active.botUsername || "?"} ·{" "}
+              </>
+            )}
             {active.telegramUser ? `@${active.telegramUser}` : active.telegramId}
             {active.agentName ? ` · Agent: ${active.agentName}` : ""}
           </p>

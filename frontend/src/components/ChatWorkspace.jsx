@@ -435,7 +435,7 @@ export default function ChatWorkspace({ agentView = false }) {
                     : "new"}
                 </span>
               </div>
-              {c.botUsername && (
+              {!agentView && c.botUsername && (
                 <div className="mt-0.5 text-[10px] text-brand">@{c.botUsername}</div>
               )}
             </button>
