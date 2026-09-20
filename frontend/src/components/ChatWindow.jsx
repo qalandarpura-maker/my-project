@@ -168,6 +168,8 @@ export default function ChatWindow({
   const [notesWidth, setNotesWidth] = useState(320);
   const fileRef = useRef(null);
   const forwardFileRef = useRef(null);
+  const msgListRef = useRef(null);
+  const scrollRef = useRef(null);
 
   function startNotesResize(e) {
     e.preventDefault();
@@ -204,6 +206,22 @@ export default function ChatWindow({
     };
   }, []);
 
+  // Conversation open hone par last message pe scroll karo
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      scrollRef.current?.scrollIntoView({ block: "end" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [active?.id]);
+
+  // Naye messages aane par sirf bottom ke paas hoon to bottom par raho
+  useEffect(() => {
+    const el = msgListRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [messages.length]);
+
   if (!active) {
     return (
       <div className="flex flex-1 items-center justify-center bg-slate-50">
@@ -215,7 +233,9 @@ export default function ChatWindow({
   const notes = messages.filter((m) => m.sender === "note");
 
   function addFiles(files) {
-    const imgs = [...files].filter((f) => f.type.startsWith("image/"));
+    const imgs = [...files].filter(
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+    );
     if (!imgs.length) return;
     setPending((prev) => [
       ...prev,
@@ -236,7 +256,9 @@ export default function ChatWindow({
   }
 
   function addForwardFiles(files) {
-    const imgs = [...files].filter((f) => f.type.startsWith("image/"));
+    const imgs = [...files].filter(
+      (f) => f.type.startsWith("image/") || f.type.startsWith("video/")
+    );
     if (!imgs.length) return;
     setForwardFiles((prev) => [
       ...prev,
@@ -260,7 +282,7 @@ export default function ChatWindow({
     const items = e.clipboardData?.items || [];
     const files = [];
     for (const it of items) {
-      if (it.type.startsWith("image/")) {
+      if (it.type.startsWith("image/") || it.type.startsWith("video/")) {
         const f = it.getAsFile();
         if (f) files.push(f);
       }
@@ -308,7 +330,7 @@ export default function ChatWindow({
     const items = e.clipboardData?.items || [];
     const files = [];
     for (const it of items) {
-      if (it.type.startsWith("image/")) {
+      if (it.type.startsWith("image/") || it.type.startsWith("video/")) {
         const f = it.getAsFile();
         if (f) files.push(f);
       }
@@ -384,7 +406,7 @@ export default function ChatWindow({
         </div>
       </div>
 
-      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+      <div ref={msgListRef} className="flex-1 space-y-3 overflow-y-auto p-4">
         {messages.filter((m) => m.sender !== "note").map((m) => (
           <MessageBubble
             key={m.id}
@@ -395,6 +417,7 @@ export default function ChatWindow({
             }
           />
         ))}
+        <div ref={scrollRef} />
       </div>
 
       <form
@@ -413,7 +436,7 @@ export default function ChatWindow({
         {dragging && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-lemon bg-lemon-soft/90">
             <p className="text-sm font-semibold text-brand">
-              📷 Images yahan drop karo
+              📷 Images/Videos yahan drop karo
             </p>
           </div>
         )}
@@ -422,11 +445,19 @@ export default function ChatWindow({
           <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
             {pending.map((p) => (
               <div key={p.id} className="relative shrink-0">
-                <img
-                  src={p.preview}
-                  alt="preview"
-                  className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
-                />
+                {p.file.type.startsWith("video/") ? (
+                  <video
+                    src={p.preview}
+                    muted
+                    className="h-16 w-16 rounded-lg border border-slate-200 bg-black object-cover"
+                  />
+                ) : (
+                  <img
+                    src={p.preview}
+                    alt="preview"
+                    className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
+                  />
+                )}
                 <button
                   type="button"
                   onClick={() => removePending(p.id)}
@@ -444,7 +475,7 @@ export default function ChatWindow({
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             multiple
             hidden
             onChange={(e) => {
@@ -563,7 +594,7 @@ export default function ChatWindow({
           >
             {forwardDragging && (
               <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-lemon bg-lemon-soft/95">
-                <p className="text-sm font-semibold text-brand">📷 Images yahan drop karo</p>
+                <p className="text-sm font-semibold text-brand">📷 Images/Videos yahan drop karo</p>
               </div>
             )}
             <p className="mb-2 text-xs font-semibold text-slate-500">Forward + Note</p>
@@ -583,11 +614,19 @@ export default function ChatWindow({
               <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
                 {forwardFiles.map((p) => (
                   <div key={p.id} className="relative shrink-0">
-                    <img
-                      src={p.preview}
-                      alt="preview"
-                      className="h-12 w-12 rounded-lg border border-slate-200 object-cover"
-                    />
+                    {p.file.type.startsWith("video/") ? (
+                      <video
+                        src={p.preview}
+                        muted
+                        className="h-12 w-12 rounded-lg border border-slate-200 bg-black object-cover"
+                      />
+                    ) : (
+                      <img
+                        src={p.preview}
+                        alt="preview"
+                        className="h-12 w-12 rounded-lg border border-slate-200 object-cover"
+                      />
+                    )}
                     <button
                       type="button"
                       onClick={() => removeForwardFile(p.id)}
@@ -611,7 +650,7 @@ export default function ChatWindow({
               <input
                 ref={forwardFileRef}
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 multiple
                 hidden
                 onChange={(e) => {

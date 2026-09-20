@@ -288,7 +288,7 @@ export async function sendMedia(req, res) {
   const caption = (req.body.caption || "").trim();
   const isImage = file.mimetype.startsWith("image/");
   const isVideo = file.mimetype.startsWith("video/");
-  const fileName = file.originalname || `file${isImage ? ".jpg" : ""}`;
+  const fileName = file.originalname || (isVideo ? "video.mp4" : isImage ? "image.jpg" : "file.bin");
 
   let url;
   try {

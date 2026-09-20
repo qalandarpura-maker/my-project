@@ -31,9 +31,7 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [unread, setUnread] = useState(0);
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem("nav-collapsed") === "1"
-  );
+  const [peek, setPeek] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -50,14 +48,7 @@ export default function Layout() {
   }, []);
 
   function toggleNav() {
-    if (isMobile) {
-      setDrawerOpen((o) => !o);
-    } else {
-      setCollapsed((c) => {
-        localStorage.setItem("nav-collapsed", c ? "0" : "1");
-        return !c;
-      });
-    }
+    if (isMobile) setDrawerOpen((o) => !o);
   }
 
   useEffect(() => {
@@ -83,8 +74,8 @@ export default function Layout() {
         onClick={toggleNav}
         title="Sidebar kholo/band karo"
         className={`${
-          collapsed || (isMobile && !drawerOpen) ? "" : "hidden"
-        } fixed left-3 top-3 z-50 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 shadow-md transition hover:bg-slate-100`}
+          isMobile && !drawerOpen ? "" : "hidden"
+        } fixed left-3 top-3 z-50 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 shadow-md transition hover:bg-slate-100 md:hidden`}
       >
         ☰
       </button>
@@ -96,13 +87,20 @@ export default function Layout() {
         />
       )}
 
+      <div
+        onMouseEnter={() => setPeek(true)}
+        aria-hidden="true"
+        className="fixed left-0 top-0 z-[5] hidden h-full w-2 cursor-pointer md:block"
+      />
+
       <aside
+        onMouseLeave={() => setPeek(false)}
         className={`flex-col border-r border-slate-200 bg-white ${
           drawerOpen
             ? "fixed inset-y-0 left-0 z-50 flex w-64 shadow-2xl md:hidden"
-            : collapsed
-              ? "hidden"
-              : "w-64 md:flex"
+            : "hidden"
+        } md:absolute md:inset-y-0 md:left-0 md:z-30 md:flex md:w-64 md:shadow-xl md:transition-transform md:duration-300 ${
+          peek ? "md:translate-x-0" : "md:-translate-x-full"
         }`}
       >
         <div className="border-b border-slate-200 p-4">
@@ -131,7 +129,13 @@ export default function Layout() {
             {user.role}
           </p>
         </div>
-        <nav onClick={() => setDrawerOpen(false)} className="flex-1 space-y-1 p-3">
+        <nav
+          onClick={() => {
+            setDrawerOpen(false);
+            setPeek(false);
+          }}
+          className="flex-1 space-y-1 p-3"
+        >
           {isStaff ? (
             <>
               <Item to="/inbox" badge={unread}>Inbox</Item>
