@@ -75,6 +75,32 @@ async function broadcastIncoming(customer, message, botRecord) {
   emitStaff("chat:new", payload);
 }
 
+const EXT_MIME = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".bmp": "image/bmp",
+  ".svg": "image/svg+xml",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+  ".mov": "video/quicktime",
+  ".mkv": "video/x-matroska",
+  ".3gp": "video/3gpp",
+  ".3g2": "video/3gpp2",
+  ".avi": "video/x-msvideo",
+  ".wmv": "video/x-ms-wmv",
+  ".mpg": "video/mpeg",
+  ".mpeg": "video/mpeg",
+  ".pdf": "application/pdf",
+  ".txt": "text/plain",
+};
+
+function mimeForExt(ext) {
+  return EXT_MIME[(ext || "").toLowerCase()] || null;
+}
+
 async function downloadTelegramFile(bot, fileId) {
   const info = await bot.api.getFile(fileId);
   if (!info.file_path) throw new Error("File ka path nahi mila");
@@ -87,8 +113,9 @@ async function downloadTelegramFile(bot, fileId) {
   if (!res.ok) throw new Error(`Download fail: ${res.status}`);
   const buf = Buffer.from(await res.arrayBuffer());
 
+  // Telegram getFile response me mime_type nahi aata, is liye extension se detect karo
   const ext = "." + (info.file_path.split(".").pop() || "jpg");
-  const mime = info.mime_type || (ext === ".jpg" ? "image/jpeg" : "application/octet-stream");
+  const mime = mimeForExt(ext) || info.mime_type || "application/octet-stream";
   if (!isAllowedMime(mime)) {
     throw new Error(`File type allowed nahi hai: ${mime}`);
   }
