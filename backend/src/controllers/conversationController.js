@@ -10,7 +10,14 @@ async function customerSummary(customer) {
     orderBy: { createdAt: "desc" },
   });
   let lastMessage = lastMsg?.text || null;
-  if (!lastMessage && lastMsg?.mediaType) lastMessage = lastMsg.mediaType === "image" ? "(image)" : "(document)";
+  if (!lastMessage && lastMsg?.mediaType) {
+    lastMessage =
+      lastMsg.mediaType === "image"
+        ? "(image)"
+        : lastMsg.mediaType === "video"
+          ? "(video)"
+          : "(document)";
+  }
   if (!lastMessage && lastMsg?.sender === "note") lastMessage = "note";
   return {
     id: customer.id,
@@ -183,6 +190,7 @@ export async function assign(req, res) {
 
     for (const file of files) {
       const isImage = file.mimetype.startsWith("image/");
+      const isVideo = file.mimetype.startsWith("video/");
       const { url } = await saveUpload(file.buffer, file.originalname, file.mimetype);
       const m = await prisma.message.create({
         data: {
@@ -190,7 +198,7 @@ export async function assign(req, res) {
           sender: "note",
           senderUserId: req.user.id,
           text: "",
-          mediaType: isImage ? "image" : "document",
+          mediaType: isVideo ? "video" : isImage ? "image" : "document",
           mediaUrl: url,
         },
       });
@@ -279,6 +287,7 @@ export async function sendMedia(req, res) {
 
   const caption = (req.body.caption || "").trim();
   const isImage = file.mimetype.startsWith("image/");
+  const isVideo = file.mimetype.startsWith("video/");
   const fileName = file.originalname || `file${isImage ? ".jpg" : ""}`;
 
   let url;
@@ -302,7 +311,8 @@ export async function sendMedia(req, res) {
         tempPath,
         fileName,
         caption || undefined,
-        isImage
+        isImage,
+        isVideo
       );
       tgMessageId = sent?.message_id;
     } finally {
@@ -311,7 +321,7 @@ export async function sendMedia(req, res) {
       } catch {}
     }
   } catch (e) {
-    return res.status(400).json({ error: "Image customer ko nahi bheji gayi: " + e.message });
+    return res.status(400).json({ error: "Media customer ko nahi bheji gayi: " + e.message });
   }
 
   const [msg] = await prisma.$transaction([
@@ -321,7 +331,7 @@ export async function sendMedia(req, res) {
         sender: "agent",
         senderUserId: req.user.id,
         text: caption,
-        mediaType: isImage ? "image" : "document",
+        mediaType: isVideo ? "video" : isImage ? "image" : "document",
         mediaUrl: url,
         telegramMessageId: tgMessageId,
       },
@@ -398,6 +408,7 @@ export async function addNoteMedia(req, res) {
 
   const caption = (req.body.caption || "").trim();
   const isImage = file.mimetype.startsWith("image/");
+  const isVideo = file.mimetype.startsWith("video/");
 
   let url;
   try {
@@ -414,7 +425,7 @@ export async function addNoteMedia(req, res) {
       sender: "note",
       senderUserId: req.user.id,
       text: caption,
-      mediaType: isImage ? "image" : "document",
+      mediaType: isVideo ? "video" : isImage ? "image" : "document",
       mediaUrl: url,
     },
   });
@@ -492,8 +503,9 @@ export async function close(req, res) {
   if (!customer) return res.status(404).json({ error: "Conversation nahi mila" });
 
   const isStaff = req.user.role === "OWNER" || req.user.role === "ADMIN";
-  const isAssignedAgent = customer.assignedAgentId === req.user.id;
-  if (!isStaff && !isAssignedAgent) return res.status(403).json({ error: "Forbidden" });
+  if (!isStaff) {
+    return res.status(403).json({ error: "Sirf admin conversation close kar sakta hai" });
+  }
 
   await prisma.customer.update({
     where: { id: customer.id },
@@ -510,4 +522,40 @@ export async function close(req, res) {
   if (customer.assignedAgentId) emitAgent(customer.assignedAgentId, "chat:updated", { customer: summary });
 
   res.json({ ok: true, customer: summary });
+}
+
+export async function deleteConversation(req, res) {
+  const customer = await prisma.customer.findUnique({
+    where: { id: req.params.id },
+    include: { bot: true },
+  });
+  if (!customer) return res.status(404).json({ error: "Conversation nahi mila" });
+
+  const isStaff = req.user.role === "OWNER" || req.user.role === "ADMIN";
+  if (!isStaff) {
+    return res.status(403).json({ error: "Sirf admin conversation delete kar sakta hai" });
+  }
+
+  const messages = await prisma.message.findMany({
+    where: { customerId: customer.id },
+  });
+
+  for (const message of messages) {
+    if (message.mediaUrl) {
+      try {
+        await deleteUpload(message.mediaUrl);
+      } catch (e) {
+        console.error("[delete-chat] media cleanup fail:", e.message);
+      }
+    }
+  }
+
+  await prisma.message.deleteMany({ where: { customerId: customer.id } });
+  await prisma.customer.delete({ where: { id: customer.id } });
+
+  const payload = { customerId: customer.id };
+  emitStaff("conversation:deleted", payload);
+  if (customer.assignedAgentId) emitAgent(customer.assignedAgentId, "conversation:deleted", payload);
+
+  res.json({ ok: true });
 }

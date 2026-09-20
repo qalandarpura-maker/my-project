@@ -8,6 +8,12 @@ const MIN_LIST_WIDTH = 200;
 const MAX_LIST_WIDTH = 640;
 const LIST_WIDTH_KEY = "inbox-list-width";
 
+function mergeMessages(prev, incoming) {
+  const seen = new Set(prev.map((m) => m.id));
+  const fresh = (incoming || []).filter((m) => m && !seen.has(m.id));
+  return fresh.length ? [...prev, ...fresh] : prev;
+}
+
 export default function ChatWorkspace({ agentView = false }) {
   const { user } = useAuth();
   const isStaff = user && (user.role === "OWNER" || user.role === "ADMIN");
@@ -29,6 +35,7 @@ export default function ChatWorkspace({ agentView = false }) {
   });
   const listWidthRef = useRef(listWidth);
   const [error, setError] = useState(null);
+  const [mobileNotes, setMobileNotes] = useState(false);
 
   function startListResize(e) {
     e.preventDefault();
@@ -105,8 +112,8 @@ export default function ChatWorkspace({ agentView = false }) {
 
     const onChatUpdate = (data) => {
       if (data.customerId === activeId) {
-        if (data.messages?.length) setMessages((prev) => [...prev, ...data.messages]);
-        if (data.notes?.length) setMessages((prev) => [...prev, ...data.notes]);
+        if (data.messages?.length) setMessages((prev) => mergeMessages(prev, data.messages));
+        if (data.notes?.length) setMessages((prev) => mergeMessages(prev, data.notes));
       } else if (data.customerId && data.customer) {
         const incoming = data.messages?.at(-1);
         setCustomers((prev) => {
@@ -229,12 +236,25 @@ export default function ChatWorkspace({ agentView = false }) {
       }
     };
 
+    const onConversationDeleted = (data) => {
+      if (data.customerId) {
+        setCustomers((prev) => prev.filter((c) => c.id !== data.customerId));
+        if (activeId === data.customerId) {
+          setMobileNotes(false);
+          setActiveId(null);
+          setActive(null);
+          setMessages([]);
+        }
+      }
+    };
+
     socket.on("chat:update", onChatUpdate);
     socket.on("chat:new", onChatNew);
     socket.on("chat:updated", onChatUpdated);
     socket.on("conversation:assigned", onAssigned);
     socket.on("conversation:unassigned", onUnassigned);
     socket.on("message:deleted", onMessageDeleted);
+    socket.on("conversation:deleted", onConversationDeleted);
 
     return () => {
       socket.off("chat:update", onChatUpdate);
@@ -243,6 +263,7 @@ export default function ChatWorkspace({ agentView = false }) {
       socket.off("conversation:assigned", onAssigned);
       socket.off("conversation:unassigned", onUnassigned);
       socket.off("message:deleted", onMessageDeleted);
+      socket.off("conversation:deleted", onConversationDeleted);
     };
   }, [activeId, refreshCustomer, agentView]);
 
@@ -265,7 +286,7 @@ export default function ChatWorkspace({ agentView = false }) {
     if (!activeId) return;
     try {
       const { data } = await api.post(`/conversations/${activeId}/reply`, { text });
-      setMessages((prev) => [...prev, data.message]);
+      setMessages((prev) => mergeMessages(prev, [data.message]));
     } catch (e) {
       alert(e.response?.data?.error || "Reply fail");
     }
@@ -278,7 +299,7 @@ export default function ChatWorkspace({ agentView = false }) {
       fd.append("file", file);
       if (caption) fd.append("caption", caption);
       const { data } = await api.post(`/conversations/${activeId}/send-media`, fd);
-      setMessages((prev) => [...prev, data.message]);
+      setMessages((prev) => mergeMessages(prev, [data.message]));
     } catch (e) {
       alert(e.response?.data?.error || "Media send fail");
     }
@@ -306,7 +327,7 @@ export default function ChatWorkspace({ agentView = false }) {
       const { data } = await api.post(`/conversations/${activeId}/assign`, fd);
       setActive(data.customer);
       const notes = data.notes?.length ? data.notes : data.note ? [data.note] : [];
-      if (notes.length) setMessages((prev) => [...prev, ...notes]);
+      if (notes.length) setMessages((prev) => mergeMessages(prev, notes));
       setAssignTarget("");
       setAssignNote("");
     } catch (e) {
@@ -327,6 +348,26 @@ export default function ChatWorkspace({ agentView = false }) {
     }
   }
 
+  async function deleteChat() {
+    if (!activeId) return;
+    try {
+      await api.delete(`/conversations/${activeId}`);
+      setCustomers((prev) => prev.filter((c) => c.id !== activeId));
+      setActiveId(null);
+      setActive(null);
+      setMessages([]);
+    } catch (e) {
+      alert(e.response?.data?.error || "Delete fail");
+    }
+  }
+
+  function dismissChat() {
+    setMobileNotes(false);
+    setActiveId(null);
+    setActive(null);
+    setMessages([]);
+  }
+
   function timeLabel(t) {
     return t ? new Date(t).toLocaleString() : "";
   }
@@ -334,9 +375,9 @@ export default function ChatWorkspace({ agentView = false }) {
   const sorted = [...customers].sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
 
   return (
-    <div className="flex h-full">
+    <div className="relative flex h-full overflow-hidden">
       <div
-        className="flex flex-col border-r border-slate-200 bg-white"
+        className={`${activeId ? "hidden" : "flex"} md:flex flex-col border-r border-slate-200 bg-white`}
         style={{ width: listWidth }}
       >
         <div className="bg-gradient-to-br from-brand to-lemon px-4 py-3">
@@ -408,26 +449,32 @@ export default function ChatWorkspace({ agentView = false }) {
       <div
         onMouseDown={startListResize}
         title="Drag karo: chota/bara"
-        className="w-1.5 shrink-0 cursor-col-resize bg-slate-200 transition hover:bg-brand/50 active:bg-brand"
+        className="hidden w-1.5 shrink-0 cursor-col-resize bg-slate-200 transition hover:bg-brand/50 active:bg-brand md:block"
       />
 
-      <ChatWindow
-        active={active}
-        messages={messages}
-        onSend={send}
-        canAssign={!agentView}
-        agents={agents}
-        onAssign={doAssign}
-        assignTarget={assignTarget}
-        setAssignTarget={setAssignTarget}
-        assignNote={assignNote}
-        setAssignNote={setAssignNote}
-        onClose={closeConvo}
-        onSendMedia={sendMedia}
-        onDeleteMessage={deleteMessage}
-        myId={user?.id}
-        isStaff={isStaff}
-      />
+      <div className={`${activeId ? "flex" : "hidden"} md:flex flex-1`}>
+        <ChatWindow
+          active={active}
+          messages={messages}
+          onSend={send}
+          canAssign={!agentView}
+          agents={agents}
+          onAssign={doAssign}
+          assignTarget={assignTarget}
+          setAssignTarget={setAssignTarget}
+          assignNote={assignNote}
+          setAssignNote={setAssignNote}
+          onClose={closeConvo}
+          onDismiss={dismissChat}
+          onDeleteChat={deleteChat}
+          onToggleNotes={() => setMobileNotes((o) => !o)}
+          mobileNotes={mobileNotes}
+          onSendMedia={sendMedia}
+          onDeleteMessage={deleteMessage}
+          myId={user?.id}
+          isStaff={isStaff}
+        />
+      </div>
     </div>
   );
 }

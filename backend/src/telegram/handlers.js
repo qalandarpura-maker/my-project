@@ -5,7 +5,7 @@ import { emitAgent, emitStaff } from "../lib/socket.js";
 import { saveUpload, extForMime, isAllowedMime } from "../lib/uploads.js";
 
 const runningBots = new Map(); // botId -> grammY instance
-const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE || 10 * 1024 * 1024); // default 10MB
+const MAX_FILE_SIZE = Number(process.env.MAX_FILE_SIZE || 20 * 1024 * 1024); // default 20MB
 
 function getCustomerInfo(ctx) {
   const { id, first_name, last_name, username } = ctx.from || {};
@@ -153,6 +153,54 @@ export function registerHandlers(bot, botRecord) {
     }
   });
 
+  bot.on(":video", async (ctx) => {
+    const video = ctx.message.video;
+    const fileId = video.file_id;
+    const caption = ctx.message.caption || "";
+    const telegramMessageId = ctx.message.message_id;
+    try {
+      const customer = await upsertCustomer(ctx, botRecord, true);
+      const { url } = await downloadTelegramFile(bot, fileId);
+      const message = await prisma.message.create({
+        data: {
+          customerId: customer.id,
+          sender: "customer",
+          text: caption,
+          mediaType: "video",
+          mediaUrl: url,
+          telegramMessageId,
+        },
+      });
+      await broadcastIncoming(customer, message, botRecord);
+    } catch (e) {
+      console.error("video handler error:", e.message);
+    }
+  });
+
+  bot.on(":animation", async (ctx) => {
+    const anim = ctx.message.animation;
+    const fileId = anim.file_id;
+    const caption = ctx.message.caption || "";
+    const telegramMessageId = ctx.message.message_id;
+    try {
+      const customer = await upsertCustomer(ctx, botRecord, true);
+      const { url } = await downloadTelegramFile(bot, fileId);
+      const message = await prisma.message.create({
+        data: {
+          customerId: customer.id,
+          sender: "customer",
+          text: caption,
+          mediaType: "video",
+          mediaUrl: url,
+          telegramMessageId,
+        },
+      });
+      await broadcastIncoming(customer, message, botRecord);
+    } catch (e) {
+      console.error("animation handler error:", e.message);
+    }
+  });
+
   bot.on(":document", async (ctx) => {
     const doc = ctx.message.document;
     const caption = ctx.message.caption || "";
@@ -165,7 +213,12 @@ export function registerHandlers(bot, botRecord) {
           customerId: customer.id,
           sender: "customer",
           text: caption,
-          mediaType: doc.mime_type && doc.mime_type.startsWith("image/") ? "image" : "document",
+          mediaType:
+            doc.mime_type && doc.mime_type.startsWith("video/")
+              ? "video"
+              : doc.mime_type && doc.mime_type.startsWith("image/")
+                ? "image"
+                : "document",
           mediaUrl: url,
           telegramMessageId,
         },
@@ -240,12 +293,38 @@ export async function sendMediaToCustomer(
   filePath,
   fileName,
   caption,
-  isImage
+  isImage,
+  isVideo
 ) {
   const bot = runningBots.get(botRecord.id);
   if (!bot) throw new Error("Bot active nahi hai");
 
   const chatId = telegramId.toString();
+
+  if (isVideo) {
+    try {
+      return await bot.api.sendVideo(
+        chatId,
+        new InputFile(filePath, fileName),
+        {
+          caption: caption || undefined,
+        }
+      );
+    } catch (e) {
+      console.error(
+        "[bot] sendVideo failed, trying document:",
+        e.message
+      );
+
+      return await bot.api.sendDocument(
+        chatId,
+        new InputFile(filePath, fileName),
+        {
+          caption: caption || undefined,
+        }
+      );
+    }
+  }
 
   if (isImage) {
     try {

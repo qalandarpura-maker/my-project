@@ -18,14 +18,23 @@ export const ALLOWED_MIME_TYPES = [
   "image/svg+xml",
   "application/pdf",
   "text/plain",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-matroska",
+  "video/3gpp",
+  "video/3gpp2",
+  "video/x-msvideo",
+  "video/x-ms-wmv",
+  "video/mpeg",
 ];
 
 export function isAllowedMime(mime) {
   if (!mime) return false;
   const lower = mime.toLowerCase();
   if (ALLOWED_MIME_TYPES.includes(lower)) return true;
-  // image/* aur application/msword/docx etc allow karna ho to neeche extend karein
-  return lower.startsWith("image/");
+  // image/* aur video/* allow karna ho to neeche extend karein
+  return lower.startsWith("image/") || lower.startsWith("video/");
 }
 
 const EXT_BY_MIME = {
@@ -37,6 +46,15 @@ const EXT_BY_MIME = {
   "image/svg+xml": ".svg",
   "application/pdf": ".pdf",
   "text/plain": ".txt",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "video/quicktime": ".mov",
+  "video/x-matroska": ".mkv",
+  "video/3gpp": ".3gp",
+  "video/3gpp2": ".3g2",
+  "video/x-msvideo": ".avi",
+  "video/x-ms-wmv": ".wmv",
+  "video/mpeg": ".mpg",
 };
 
 export function extForMime(mime) {

@@ -31,8 +31,34 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [unread, setUnread] = useState(0);
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem("nav-collapsed") === "1"
+  );
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
   const isStaff = user.role === "OWNER" || user.role === "ADMIN";
+
+  useEffect(() => {
+    function onResize() {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (!mobile) setDrawerOpen(false);
+    }
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  function toggleNav() {
+    if (isMobile) {
+      setDrawerOpen((o) => !o);
+    } else {
+      setCollapsed((c) => {
+        localStorage.setItem("nav-collapsed", c ? "0" : "1");
+        return !c;
+      });
+    }
+  }
 
   useEffect(() => {
     async function fetchUnread() {
@@ -52,27 +78,60 @@ export default function Layout() {
   }, []);
 
   return (
-    <div className="flex h-full bg-cloud">
-      <aside className="flex w-64 flex-col border-r border-slate-200 bg-white">
+    <div className="relative flex h-full bg-cloud">
+      <button
+        onClick={toggleNav}
+        title="Sidebar kholo/band karo"
+        className={`${
+          collapsed || (isMobile && !drawerOpen) ? "" : "hidden"
+        } fixed left-3 top-3 z-50 rounded-lg border border-slate-200 bg-white p-2 text-slate-600 shadow-md transition hover:bg-slate-100`}
+      >
+        ☰
+      </button>
+
+      {drawerOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={() => setDrawerOpen(false)}
+        />
+      )}
+
+      <aside
+        className={`flex-col border-r border-slate-200 bg-white ${
+          drawerOpen
+            ? "fixed inset-y-0 left-0 z-50 flex w-64 shadow-2xl md:hidden"
+            : collapsed
+              ? "hidden"
+              : "w-64 md:flex"
+        }`}
+      >
         <div className="border-b border-slate-200 p-4">
-          <div className="flex items-center gap-3">
-            <img
-              src="/wolf-logo.png"
-              alt="Wolf Bots"
-              className="h-16 w-16 rounded-xl shadow-md shadow-slate-300"
-            />
-            <div>
-              <p className="bg-gradient-to-br from-brand to-lemon bg-clip-text text-xl font-bold text-transparent">
-                Wolf Bots
-              </p>
-              <p className="text-xs text-slate-400">{user.name}</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <img
+                src="/wolf-logo.png"
+                alt="Wolf Bots"
+                className="h-16 w-16 rounded-xl shadow-md shadow-slate-300"
+              />
+              <div>
+                <p className="bg-gradient-to-br from-brand to-lemon bg-clip-text text-xl font-bold text-transparent">
+                  Wolf Bots
+                </p>
+                <p className="text-xs text-slate-400">{user.name}</p>
+              </div>
             </div>
+            <button
+              onClick={() => setDrawerOpen(false)}
+              className="rounded-lg border border-slate-200 p-1.5 text-sm text-slate-500 hover:bg-slate-100 md:hidden"
+            >
+              ✕
+            </button>
           </div>
           <p className="mt-2 rounded bg-brand-soft px-2 py-1 text-[10px] font-semibold uppercase tracking-widest text-brand">
             {user.role}
           </p>
         </div>
-        <nav className="flex-1 space-y-1 p-3">
+        <nav onClick={() => setDrawerOpen(false)} className="flex-1 space-y-1 p-3">
           {isStaff ? (
             <>
               <Item to="/inbox" badge={unread}>Inbox</Item>

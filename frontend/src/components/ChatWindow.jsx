@@ -3,7 +3,11 @@ import { useEffect, useRef, useState } from "react";
 function BrokenImage({ type = "image" }) {
   return (
     <div className="mb-1 flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-4 text-xs text-red-500">
-      {type === "image" ? "🖼 Image load nahi hui" : "📄 File load nahi hui"}
+      {type === "image"
+        ? "🖼 Image load nahi hui"
+        : type === "video"
+          ? "🎬 Video load nahi hua"
+          : "📄 File load nahi hui"}
     </div>
   );
 }
@@ -15,6 +19,20 @@ function MediaImage({ src, className }) {
     <img
       src={src}
       alt="image"
+      onError={() => setFailed(true)}
+      className={className}
+    />
+  );
+}
+
+function MediaVideo({ src, className }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <BrokenImage type="video" />;
+  return (
+    <video
+      src={src}
+      controls
+      preload="metadata"
       onError={() => setFailed(true)}
       className={className}
     />
@@ -35,6 +53,9 @@ function MessageBubble({ m, onDelete, canDelete }) {
           </p>
           {m.mediaType === "image" && m.mediaUrl && (
             <MediaImage src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg" />
+          )}
+          {m.mediaType === "video" && m.mediaUrl && (
+            <MediaVideo src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg bg-black" />
           )}
           {m.mediaType === "document" && m.mediaUrl && (
             <a
@@ -87,6 +108,9 @@ function MessageBubble({ m, onDelete, canDelete }) {
           {m.mediaType === "image" && m.mediaUrl && (
             <MediaImage src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg" />
           )}
+          {m.mediaType === "video" && m.mediaUrl && (
+            <MediaVideo src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg bg-black" />
+          )}
           {m.mediaType === "document" && m.mediaUrl && (
             <a
               href={m.mediaUrl}
@@ -125,6 +149,10 @@ export default function ChatWindow({
   assignNote,
   setAssignNote,
   onClose,
+  onDismiss,
+  onDeleteChat,
+  onToggleNotes,
+  mobileNotes,
   onSendMedia,
   onDeleteMessage,
   myId,
@@ -132,6 +160,8 @@ export default function ChatWindow({
 }) {
   const [text, setText] = useState("");
   const [pending, setPending] = useState([]);
+  const [sending, setSending] = useState(false);
+  const [assigning, setAssigning] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [forwardFiles, setForwardFiles] = useState([]);
   const [forwardDragging, setForwardDragging] = useState(false);
@@ -249,20 +279,29 @@ export default function ChatWindow({
 
   function submit(e) {
     e.preventDefault();
-    if (pending.length) {
-      const attachments = [...pending];
-      const caption = text.trim();
-      let i = 0;
-      for (const p of attachments) {
-        onSendMedia(p.file, i === 0 ? caption : "");
-        i++;
+    if (sending) return;
+    if (!pending.length && !text.trim()) return;
+    setSending(true);
+    (async () => {
+      try {
+        if (pending.length) {
+          const attachments = [...pending];
+          const caption = text.trim();
+          let i = 0;
+          for (const p of attachments) {
+            await onSendMedia(p.file, i === 0 ? caption : "");
+            i++;
+          }
+          setPending([]);
+          setText("");
+        } else if (text.trim()) {
+          await onSend(text.trim());
+          setText("");
+        }
+      } finally {
+        setSending(false);
       }
-      setPending([]);
-      setText("");
-    } else if (text.trim()) {
-      onSend(text.trim());
-      setText("");
-    }
+    })();
   }
 
   function onPaste(e) {
@@ -286,6 +325,17 @@ export default function ChatWindow({
     if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
   }
 
+  function handleAdminAction(e) {
+    const action = e.target.value;
+    e.target.value = "";
+    if (action === "close") onClose();
+    else if (action === "delete") {
+      if (window.confirm("Poora conversation delete karna hai? Yeh wapas nahi aayega.")) {
+        onDeleteChat();
+      }
+    }
+  }
+
   return (
     <div className="flex flex-1">
       <div className="flex flex-1 flex-col bg-slate-50">
@@ -303,16 +353,39 @@ export default function ChatWindow({
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={onClose}
-            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+            onClick={onToggleNotes}
+            title="Notes kholo/band karo"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 md:hidden"
           >
-            Close
+            📝
           </button>
+          {isStaff ? (
+            <select
+              onChange={handleAdminAction}
+              defaultValue=""
+              title="Admin actions"
+              className="rounded-lg border border-slate-300 bg-white px-1 py-0.5 text-[11px] text-slate-600 hover:bg-slate-100 focus:outline-none"
+            >
+              <option value="" disabled>
+                ⋯
+              </option>
+              <option value="close">Close Chat</option>
+              <option value="delete">Delete Chat</option>
+            </select>
+          ) : (
+            <button
+              onClick={onDismiss}
+              title="Chat panel band karo (conversation close nahi hogi)"
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
-        {messages.map((m) => (
+        {messages.filter((m) => m.sender !== "note").map((m) => (
           <MessageBubble
             key={m.id}
             m={m}
@@ -399,10 +472,10 @@ export default function ChatWindow({
           />
           <button
             type="submit"
-            disabled={!text.trim() && !pending.length}
+            disabled={sending || (!text.trim() && !pending.length)}
             className="rounded-lg bg-gradient-to-br from-brand to-lemon px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
           >
-            {pending.length ? `Send ${pending.length}` : "Send"}
+            {sending ? "Sending..." : pending.length ? `Send ${pending.length}` : "Send"}
           </button>
         </div>
       </form>
@@ -411,12 +484,22 @@ export default function ChatWindow({
       <div
         onMouseDown={startNotesResize}
         title="Drag karo: chota/bara"
-        className="w-1.5 shrink-0 cursor-col-resize bg-slate-200 transition hover:bg-brand/50 active:bg-brand"
+        className="hidden w-1.5 shrink-0 cursor-col-resize bg-slate-200 transition hover:bg-brand/50 active:bg-brand md:block"
       />
 
+      {mobileNotes && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={() => setMobileNotes(false)}
+        />
+      )}
       <aside
-        className="flex flex-col border-l border-slate-200 bg-white"
-        style={{ width: notesWidth }}
+        className={`flex-col border-l border-slate-200 bg-white ${
+          mobileNotes
+            ? "fixed inset-y-0 right-0 z-50 flex w-80 shadow-xl"
+            : "hidden"
+        } md:static md:z-auto md:flex md:shadow-none`}
+        style={{ width: mobileNotes ? undefined : notesWidth }}
       >
         <div className="border-b border-slate-200 px-4 py-3">
           <h3 className="text-sm font-semibold text-slate-800">📝 Agent Notes</h3>
@@ -428,6 +511,9 @@ export default function ChatWindow({
             <div key={m.id} className="rounded-lg border border-lemon/30 bg-lemon-soft p-3">
               {m.mediaType === "image" && m.mediaUrl && (
                 <MediaImage src={m.mediaUrl} className="mb-2 max-h-52 w-full rounded-lg object-cover" />
+              )}
+              {m.mediaType === "video" && m.mediaUrl && (
+                <MediaVideo src={m.mediaUrl} className="mb-2 max-h-52 w-full rounded-lg bg-black" />
               )}
               {m.mediaType === "document" && m.mediaUrl && (
                 <a
@@ -454,10 +540,15 @@ export default function ChatWindow({
           <form
             onSubmit={async (e) => {
               e.preventDefault();
-              if (!assignTarget) return;
-              await onAssign(e, forwardFiles.map((f) => f.file));
-              forwardFiles.forEach((f) => URL.revokeObjectURL(f.preview));
-              setForwardFiles([]);
+              if (!assignTarget || assigning) return;
+              setAssigning(true);
+              try {
+                await onAssign(e, forwardFiles.map((f) => f.file));
+                forwardFiles.forEach((f) => URL.revokeObjectURL(f.preview));
+                setForwardFiles([]);
+              } finally {
+                setAssigning(false);
+              }
             }}
             onPaste={onPasteForward}
             onDragOver={(e) => {
@@ -538,9 +629,10 @@ export default function ChatWindow({
               </button>
               <button
                 type="submit"
-                className="flex-1 rounded-lg bg-gradient-to-br from-brand to-lemon px-3 py-1.5 text-sm font-medium text-white hover:brightness-110"
+                disabled={!assignTarget || assigning}
+                className="flex-1 rounded-lg bg-gradient-to-br from-brand to-lemon px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-40"
               >
-                Forward{forwardFiles.length ? ` ${forwardFiles.length}` : ""}
+                {assigning ? "Forwarding..." : `Forward${forwardFiles.length ? ` ${forwardFiles.length}` : ""}`}
               </button>
             </div>
           </form>

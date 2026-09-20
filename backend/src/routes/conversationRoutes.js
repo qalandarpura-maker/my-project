@@ -14,6 +14,7 @@ import {
   addNoteMedia,
   deleteMessage,
   close,
+  deleteConversation,
 } from "../controllers/conversationController.js";
 
 const router = Router();
@@ -21,7 +22,7 @@ router.use(requireAuth);
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter,
 });
 
@@ -35,6 +36,8 @@ router.post("/:id/send-media", upload.single("file"), sendMedia);
 router.post("/:id/note", addNote);
 router.post("/:id/note-media", upload.single("file"), addNoteMedia);
 router.delete("/:id/messages/:messageId", deleteMessage);
+
 router.post("/:id/close", close);
 
+router.delete("/:id", deleteConversation);
 export default router;
