@@ -44,6 +44,15 @@ function fmtTime(t) {
   return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function DetailRow({ label, value }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-2">
+      <dt className="text-xs font-medium text-slate-400">{label}</dt>
+      <dd className="text-right text-xs font-semibold text-slate-700">{value || "—"}</dd>
+    </div>
+  );
+}
+
 function MessageBubble({ m, onDelete, canDelete }) {
   if (m.sender === "note") {
     return (
@@ -167,6 +176,7 @@ export default function ChatWindow({
   const [forwardFiles, setForwardFiles] = useState([]);
   const [forwardDragging, setForwardDragging] = useState(false);
   const [notesWidth, setNotesWidth] = useState(320);
+  const [showInfo, setShowInfo] = useState(false);
   const fileRef = useRef(null);
   const forwardFileRef = useRef(null);
   const msgListRef = useRef(null);
@@ -193,6 +203,7 @@ export default function ChatWindow({
     setPending([]);
     setText("");
     setForwardFiles([]);
+    setShowInfo(false);
   }, [active?.id]);
 
   const pendingRef = useRef(pending);
@@ -366,10 +377,15 @@ export default function ChatWindow({
         <div className="flex items-center gap-3">
           <Avatar customer={active} className="h-10 w-10 text-base" />
           <div>
-            <h3 className="font-semibold text-slate-800">
+            <button
+              type="button"
+              onClick={() => setShowInfo(true)}
+              title="Telegram details dekho"
+              className="text-left font-semibold text-slate-800 transition hover:text-brand hover:underline"
+            >
               {active.firstName || active.telegramUser || active.telegramId}
               {active.lastName ? ` ${active.lastName}` : ""}
-            </h3>
+            </button>
             <p className="text-xs text-slate-500">
               {canAssign && (
                 <>
@@ -382,6 +398,13 @@ export default function ChatWindow({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowInfo(true)}
+            title="Telegram details"
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100"
+          >
+            ℹ️
+          </button>
           <button
             onClick={onToggleNotes}
             title="Notes kholo/band karo"
@@ -691,6 +714,69 @@ export default function ChatWindow({
           </form>
         )}
       </aside>
+
+      {showInfo && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setShowInfo(false)}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between">
+              <h3 className="text-sm font-bold text-slate-800">📋 Telegram Details</h3>
+              <button
+                onClick={() => setShowInfo(false)}
+                title="Band karo"
+                className="rounded-lg border border-slate-200 px-2 py-0.5 text-sm text-slate-500 hover:bg-slate-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 flex items-center gap-3">
+              <Avatar customer={active} className="h-16 w-16 text-xl" />
+              <div className="min-w-0">
+                <p className="truncate font-semibold text-slate-800">
+                  {active.firstName || ""} {active.lastName || ""}
+                </p>
+                <p className="text-sm text-slate-500">
+                  {active.telegramUser ? `@${active.telegramUser}` : active.telegramId}
+                </p>
+                {active.blocked && (
+                  <span className="mt-1 inline-block rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    ⛔ Blocked
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <dl className="mt-4 space-y-2 text-sm">
+              <DetailRow label="Telegram ID" value={active.telegramId} />
+              <DetailRow
+                label="Bot"
+                value={active.botUsername ? `@${active.botUsername}` : active.botName || ""}
+              />
+              <DetailRow
+                label="Status"
+                value={
+                  active.status === "assigned"
+                    ? `Assigned${active.agentName ? ` to ${active.agentName}` : ""}`
+                    : active.status === "closed"
+                      ? "Closed"
+                      : "New"
+                }
+              />
+              <DetailRow label="Unread" value={`${active.unreadCount || 0}`} />
+              <DetailRow
+                label="Last message"
+                value={active.lastMessageAt ? new Date(active.lastMessageAt).toLocaleString() : ""}
+              />
+            </dl>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
