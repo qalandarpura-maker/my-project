@@ -3,10 +3,12 @@ import { api } from "../api.js";
 import { socket } from "../socket.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import ChatWindow from "./ChatWindow.jsx";
+import Avatar from "./Avatar.jsx";
 
 const MIN_LIST_WIDTH = 200;
 const MAX_LIST_WIDTH = 640;
 const LIST_WIDTH_KEY = "inbox-list-width";
+const AUTO_REFRESH_MS = 10000;
 
 function mergeMessages(prev, incoming) {
   const seen = new Set(prev.map((m) => m.id));
@@ -36,6 +38,7 @@ export default function ChatWorkspace({ agentView = false }) {
   const listWidthRef = useRef(listWidth);
   const [error, setError] = useState(null);
   const [mobileNotes, setMobileNotes] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   function startListResize(e) {
     e.preventDefault();
@@ -78,6 +81,39 @@ export default function ChatWorkspace({ agentView = false }) {
       api.get("/staff/agents").then(({ data }) => setAgents(data.users || []));
     }
   }, [agentView]);
+
+  // Backend se khudi refresh (5–10 sec) + manual button dono isko use karte hain
+  const refresh = useCallback(
+    async (opts = {}) => {
+      const { silent = false } = opts;
+      if (!silent) setRefreshing(true);
+      try {
+        const { data } = await api.get("/conversations");
+        setCustomers(data.customers);
+        if (activeId) {
+          try {
+            const { data: conv } = await api.get(`/conversations/${activeId}`);
+            setActive(conv.customer);
+            setMessages(conv.messages);
+          } catch {
+            setActiveId(null);
+            setActive(null);
+            setMessages([]);
+          }
+        }
+      } catch (e) {
+        console.error("refresh fail:", e);
+      } finally {
+        if (!silent) setRefreshing(false);
+      }
+    },
+    [activeId]
+  );
+
+  useEffect(() => {
+    const t = setInterval(() => refresh({ silent: true }), AUTO_REFRESH_MS);
+    return () => clearInterval(t);
+  }, [refresh]);
 
   const refreshCustomer = useCallback(
     (customerId, newMsg) => {
@@ -380,13 +416,23 @@ export default function ChatWorkspace({ agentView = false }) {
         className={`${activeId ? "hidden" : "flex"} md:flex flex-col border-r border-slate-200 bg-white`}
         style={{ width: listWidth }}
       >
-        <div className="bg-gradient-to-br from-brand to-lemon px-4 py-3">
-          <h2 className="text-lg font-semibold text-white">
-            {agentView ? "My Chats" : "Inbox"}
-          </h2>
-          <p className="text-xs text-white/85">
-            {sorted.length} active {sorted.length === 1 ? "chat" : "chats"}
-          </p>
+        <div className="flex items-center justify-between gap-2 bg-gradient-to-br from-brand to-lemon px-4 py-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">
+              {agentView ? "My Chats" : "Inbox"}
+            </h2>
+            <p className="text-xs text-white/85">
+              {sorted.length} active {sorted.length === 1 ? "chat" : "chats"}
+            </p>
+          </div>
+          <button
+            onClick={() => refresh()}
+            disabled={refreshing}
+            title="Chat list refresh karo (backend se)"
+            className="rounded-lg bg-white/20 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/30 disabled:opacity-60"
+          >
+            {refreshing ? "🔄..." : "↻ Refresh"}
+          </button>
         </div>
         {error && <p className="bg-red-50 p-2 text-xs text-red-600">{error}</p>}
         <div className="flex-1 overflow-y-auto">
@@ -395,49 +441,63 @@ export default function ChatWorkspace({ agentView = false }) {
             <button
               key={c.id}
               onClick={() => select(c.id)}
-              className={`block w-full border-b border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50 ${
-                activeId === c.id ? "bg-brand-soft" : ""
+              className={`block w-full border-b px-4 py-3 text-left transition hover:bg-slate-50 ${
+                activeId === c.id
+                  ? "bg-brand-soft"
+                  : c.blocked
+                    ? "border-red-200 bg-red-50/70 hover:bg-red-50"
+                    : "border-slate-100 bg-white"
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="truncate text-sm font-semibold text-slate-800">
-                  {c.firstName || c.telegramUser || c.telegramId}
-                </span>
-                <div className="ml-2 flex items-center gap-1.5">
-                  {(c.unreadCount || 0) > 0 && (
-                    <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                      {c.unreadCount > 99 ? "99+" : c.unreadCount}
+              <div className="flex items-start gap-3">
+                <Avatar customer={c} className="h-10 w-10 text-base" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="truncate text-sm font-semibold text-slate-800">
+                      {c.firstName || c.telegramUser || c.telegramId}
                     </span>
+                    <div className="ml-2 flex items-center gap-1.5">
+                      {c.blocked && (
+                        <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          ⛔ Blocked
+                        </span>
+                      )}
+                      {(c.unreadCount || 0) > 0 && (
+                        <span className="flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                          {c.unreadCount > 99 ? "99+" : c.unreadCount}
+                        </span>
+                      )}
+                      <span className="whitespace-nowrap text-[10px] text-slate-400">
+                        {timeLabel(c.lastMessageAt)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-0.5 flex items-center justify-between gap-2">
+                    <span className="truncate text-xs text-slate-500">
+                      {c.lastSender === "agent" ? "→ " : ""}
+                      {c.lastMessage || (c.status === "closed" ? "(closed)" : "Start kar diya")}
+                    </span>
+                    <span
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                        c.status === "assigned"
+                          ? "bg-green-100 text-green-700"
+                          : c.status === "closed"
+                            ? "bg-slate-100 text-slate-500"
+                            : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {c.status === "assigned"
+                        ? c.agentName || "assigned"
+                        : c.status === "closed"
+                          ? "closed"
+                          : "new"}
+                    </span>
+                  </div>
+                  {!agentView && c.botUsername && (
+                    <div className="mt-0.5 text-[10px] text-brand">@{c.botUsername}</div>
                   )}
-                  <span className="whitespace-nowrap text-[10px] text-slate-400">
-                    {timeLabel(c.lastMessageAt)}
-                  </span>
                 </div>
               </div>
-              <div className="mt-0.5 flex items-center justify-between gap-2">
-                <span className="truncate text-xs text-slate-500">
-                  {c.lastSender === "agent" ? "→ " : ""}
-                  {c.lastMessage || (c.status === "closed" ? "(closed)" : "Start kar diya")}
-                </span>
-                <span
-                  className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                    c.status === "assigned"
-                      ? "bg-green-100 text-green-700"
-                      : c.status === "closed"
-                      ? "bg-slate-100 text-slate-500"
-                      : "bg-amber-100 text-amber-700"
-                  }`}
-                >
-                  {c.status === "assigned"
-                    ? c.agentName || "assigned"
-                    : c.status === "closed"
-                    ? "closed"
-                    : "new"}
-                </span>
-              </div>
-              {!agentView && c.botUsername && (
-                <div className="mt-0.5 text-[10px] text-brand">@{c.botUsername}</div>
-              )}
             </button>
           ))}
           {!loading && !sorted.length && (

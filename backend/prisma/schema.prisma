@@ -50,6 +50,8 @@ model Customer {
   status          String    @default("unassigned") // unassigned | assigned | closed
   lastMessageAt   DateTime  @default(now())
   unreadCount     Int       @default(0)
+  photo           String?   // Telegram profile photo (uploaded URL)
+  blocked         Boolean   @default(false) // customer ne bot block kiya hai
   createdAt       DateTime  @default(now())
 
   messages       Message[]

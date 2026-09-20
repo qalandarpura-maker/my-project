@@ -40,6 +40,7 @@ async function upsertCustomer(ctx, botRecord, isInboundMessage = false) {
       lastName: info.last_name,
       telegramUser: info.username,
       lastMessageAt: new Date(),
+      blocked: false, // dobara message bhej raha hai => unblock ho chuka hai
       ...(wasClosed && { status: "unassigned", assignedAgentId: null }),
       ...(isInboundMessage && { unreadCount: { increment: 1 } }),
     },
@@ -52,6 +53,40 @@ function customerSummary(customer, botRecord) {
     telegramId: customer.telegramId.toString(),
     botUsername: botRecord?.botUsername,
   };
+}
+
+const PHOTO_API_URL = "https://api.telegram.org/file/bot";
+
+async function refreshCustomerPhoto(bot, customer, force = false) {
+  if (!force && customer.photo != null) return customer.photo;
+
+  try {
+    const res = await bot.api.getUserProfilePhotos(customer.telegramId.toString(), { limit: 1 });
+    const photos = res?.photos;
+    if (!photos?.length) {
+      // Photo nahi hai — baar-baar fetch na ho is liye "" marker set karo
+      await prisma.customer.update({ where: { id: customer.id }, data: { photo: "" } });
+      return null;
+    }
+
+    const photo = photos[0][photos[0].length - 1];
+    const info = await bot.api.getFile(photo.file_id);
+    if (!info?.file_path) return null;
+
+    const rawUrl = `${PHOTO_API_URL}${bot.token}/${info.file_path}`;
+    const resp = await fetch(rawUrl);
+    if (!resp.ok) throw new Error(`Profile photo download fail: ${resp.status}`);
+
+    const buf = Buffer.from(await resp.arrayBuffer());
+    const mime = resp.headers.get("content-type") || "image/jpeg";
+    const { url } = await saveUpload(buf, `profile-${customer.telegramId}`, mime);
+
+    await prisma.customer.update({ where: { id: customer.id }, data: { photo: url } });
+    return url;
+  } catch (e) {
+    console.error("[photo] profile fetch fail:", e.message);
+    return null;
+  }
 }
 
 async function broadcastIncoming(customer, message, botRecord) {
@@ -127,7 +162,8 @@ async function downloadTelegramFile(bot, fileId, mimeHint) {
 export function registerHandlers(bot, botRecord) {
   bot.command("start", async (ctx) => {
     try {
-      await upsertCustomer(ctx, botRecord, false);
+      const customer = await upsertCustomer(ctx, botRecord, false);
+      await refreshCustomerPhoto(bot, customer, true);
       const fresh = await prisma.bot.findUnique({ where: { id: botRecord.id } });
       const greeting =
         (fresh?.greeting || "").trim() ||
@@ -143,6 +179,7 @@ export function registerHandlers(bot, botRecord) {
     const telegramMessageId = ctx.message.message_id;
     try {
       const customer = await upsertCustomer(ctx, botRecord, true);
+      await refreshCustomerPhoto(bot, customer);
       const message = await prisma.message.create({
         data: {
           customerId: customer.id,
@@ -164,6 +201,7 @@ export function registerHandlers(bot, botRecord) {
     const telegramMessageId = ctx.message.message_id;
     try {
       const customer = await upsertCustomer(ctx, botRecord, true);
+      await refreshCustomerPhoto(bot, customer);
       const { url } = await downloadTelegramFile(bot, fileId);
       const message = await prisma.message.create({
         data: {
@@ -188,6 +226,7 @@ export function registerHandlers(bot, botRecord) {
     const telegramMessageId = ctx.message.message_id;
     try {
       const customer = await upsertCustomer(ctx, botRecord, true);
+      await refreshCustomerPhoto(bot, customer);
       const { url } = await downloadTelegramFile(bot, fileId, video.mime_type);
       const message = await prisma.message.create({
         data: {
@@ -212,6 +251,7 @@ export function registerHandlers(bot, botRecord) {
     const telegramMessageId = ctx.message.message_id;
     try {
       const customer = await upsertCustomer(ctx, botRecord, true);
+      await refreshCustomerPhoto(bot, customer);
       const { url } = await downloadTelegramFile(bot, fileId, anim.mime_type);
       const message = await prisma.message.create({
         data: {
@@ -235,6 +275,7 @@ export function registerHandlers(bot, botRecord) {
     const telegramMessageId = ctx.message.message_id;
     try {
       const customer = await upsertCustomer(ctx, botRecord, true);
+      await refreshCustomerPhoto(bot, customer);
       const { url } = await downloadTelegramFile(bot, doc.file_id, doc.mime_type);
       const message = await prisma.message.create({
         data: {

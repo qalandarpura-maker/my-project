@@ -30,6 +30,8 @@ async function customerSummary(customer) {
     status: customer.status,
     agentId: customer.assignedAgentId,
     agentName: customer.assignedAgent?.name,
+    photo: customer.photo,
+    blocked: customer.blocked,
     lastMessageAt: customer.lastMessageAt,
     lastMessage,
     lastSender: lastMsg?.sender || null,
@@ -52,6 +54,27 @@ function buildWhere(req) {
   const isStaff = req.user.role === "OWNER" || req.user.role === "ADMIN";
   if (isStaff) return {};
   return { assignedAgentId: req.user.id, status: { not: "closed" } };
+}
+
+function isBlockedError(e) {
+  const code = e?.error_code || e?.statusCode;
+  const msg = `${e?.message || ""} ${e?.description || ""}`;
+  return code === 403 || /blocked/i.test(msg);
+}
+
+async function setBlocked(customer, blocked) {
+  if (customer.blocked === blocked) return;
+  await prisma.customer.update({
+    where: { id: customer.id },
+    data: { blocked },
+  });
+  const updated = await prisma.customer.findUnique({
+    where: { id: customer.id },
+    include: { bot: true, assignedAgent: { select: { id: true, name: true } } },
+  });
+  const summary = await customerSummary(updated);
+  emitStaff("chat:updated", { customer: summary });
+  if (updated.assignedAgentId) emitAgent(updated.assignedAgentId, "chat:updated", { customer: summary });
 }
 
 export async function listCustomers(req, res) {
@@ -232,7 +255,17 @@ export async function reply(req, res) {
   const { text } = req.body || {};
   if (!text?.trim()) return res.status(400).json({ error: "text required" });
 
-  const sent = await sendToCustomer(customer.bot, customer.telegramId, text.trim());
+  let sent;
+  try {
+    sent = await sendToCustomer(customer.bot, customer.telegramId, text.trim());
+    if (customer.blocked) await setBlocked(customer, false);
+  } catch (e) {
+    if (isBlockedError(e)) {
+      await setBlocked(customer, true);
+      return res.status(400).json({ error: "Customer ne bot ko block kar diya hai — reply nahi bheja ja sakta" });
+    }
+    return res.status(400).json({ error: "Reply fail: " + (e?.message || e) });
+  }
 
   const [msg] = await prisma.$transaction([
     prisma.message.create({
@@ -321,8 +354,14 @@ export async function sendMedia(req, res) {
       } catch {}
     }
   } catch (e) {
+    if (isBlockedError(e)) {
+      await setBlocked(customer, true);
+      return res.status(400).json({ error: "Customer ne bot ko block kar diya hai — media nahi bheji ja sakti" });
+    }
     return res.status(400).json({ error: "Media customer ko nahi bheji gayi: " + e.message });
   }
+
+  if (customer.blocked) await setBlocked(customer, false);
 
   const [msg] = await prisma.$transaction([
     prisma.message.create({

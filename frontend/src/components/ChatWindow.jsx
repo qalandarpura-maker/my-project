@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import Avatar from "./Avatar.jsx";
 
 function BrokenImage({ type = "image" }) {
   return (
@@ -361,21 +362,24 @@ export default function ChatWindow({
   return (
     <div className="flex flex-1">
       <div className="flex flex-1 flex-col bg-slate-50">
-      <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3">
-        <div>
-          <h3 className="font-semibold text-slate-800">
-            {active.firstName || active.telegramUser || active.telegramId}
-            {active.lastName ? ` ${active.lastName}` : ""}
-          </h3>
-          <p className="text-xs text-slate-500">
-            {canAssign && (
-              <>
-                @{active.botUsername || "?"} ·{" "}
-              </>
-            )}
-            {active.telegramUser ? `@${active.telegramUser}` : active.telegramId}
-            {active.agentName ? ` · Agent: ${active.agentName}` : ""}
-          </p>
+      <div className={`flex items-center justify-between border-b px-4 py-3 ${active.blocked ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"}`}>
+        <div className="flex items-center gap-3">
+          <Avatar customer={active} className="h-10 w-10 text-base" />
+          <div>
+            <h3 className="font-semibold text-slate-800">
+              {active.firstName || active.telegramUser || active.telegramId}
+              {active.lastName ? ` ${active.lastName}` : ""}
+            </h3>
+            <p className="text-xs text-slate-500">
+              {canAssign && (
+                <>
+                  @{active.botUsername || "?"} ·{" "}
+                </>
+              )}
+              {active.telegramUser ? `@${active.telegramUser}` : active.telegramId}
+              {active.agentName ? ` · Agent: ${active.agentName}` : ""}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -409,6 +413,12 @@ export default function ChatWindow({
           )}
         </div>
       </div>
+
+      {active.blocked && (
+        <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs font-semibold text-red-600">
+          ⛔ Is customer ne bot ko block kar diya hai — reply/media is tak nahi pahunchengi.
+        </div>
+      )}
 
       <div ref={msgListRef} className="flex-1 space-y-3 overflow-y-auto p-4">
         {messages.filter((m) => m.sender !== "note").map((m) => (
