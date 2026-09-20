@@ -51,6 +51,7 @@ model Customer {
   lastMessageAt   DateTime  @default(now())
   unreadCount     Int       @default(0)
   photo           String?   // Telegram profile photo (uploaded URL)
+  photoCheckedAt  DateTime? // Kab photo fetch/check kiya gaya
   blocked         Boolean   @default(false) // customer ne bot block kiya hai
   createdAt       DateTime  @default(now())
 

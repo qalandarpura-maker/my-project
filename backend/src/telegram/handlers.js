@@ -56,37 +56,114 @@ function customerSummary(customer, botRecord) {
 }
 
 const PHOTO_API_URL = "https://api.telegram.org/file/bot";
+const PHOTO_RETRY_MS = 24 * 60 * 60 * 1000; // 24 ghante baad dobara check
 
 async function refreshCustomerPhoto(bot, customer, force = false) {
-  if (!force && customer.photo != null) return customer.photo;
+  const photo = customer.photo;
+  const lastCheckedAt = customer.photoCheckedAt;
+  const stale =
+    !lastCheckedAt || Date.now() - new Date(lastCheckedAt).getTime() > PHOTO_RETRY_MS;
+
+  // Pehle se photo hai aur check purana nahi to skip
+  if (!force && photo && !stale) return photo;
+  // No-photo marker ("") hai aur check purana nahi to denn ke liye dobara fetch na karo
+  if (!force && photo === "" && !stale) return null;
 
   try {
     const res = await bot.api.getUserProfilePhotos(customer.telegramId.toString(), { limit: 1 });
     const photos = res?.photos;
     if (!photos?.length) {
-      // Photo nahi hai — baar-baar fetch na ho is liye "" marker set karo
-      await prisma.customer.update({ where: { id: customer.id }, data: { photo: "" } });
+      await prisma.customer.update({
+        where: { id: customer.id },
+        data: { photo: "", photoCheckedAt: new Date() },
+      });
       return null;
     }
 
-    const photo = photos[0][photos[0].length - 1];
-    const info = await bot.api.getFile(photo.file_id);
+    const photoSize = photos[0][photos[0].length - 1];
+    const info = await bot.api.getFile(photoSize.file_id);
     if (!info?.file_path) return null;
 
     const rawUrl = `${PHOTO_API_URL}${bot.token}/${info.file_path}`;
     const resp = await fetch(rawUrl);
-    if (!resp.ok) throw new Error(`Profile photo download fail: ${resp.status}`);
+    if (!resp.ok) throw new Error(`download fail: ${resp.status}`);
 
     const buf = Buffer.from(await resp.arrayBuffer());
     const mime = resp.headers.get("content-type") || "image/jpeg";
     const { url } = await saveUpload(buf, `profile-${customer.telegramId}`, mime);
 
-    await prisma.customer.update({ where: { id: customer.id }, data: { photo: url } });
+    await prisma.customer.update({
+      where: { id: customer.id },
+      data: { photo: url, photoCheckedAt: new Date() },
+    });
+    console.log(`[photo] saved customer ${customer.telegramId} ->`, url);
     return url;
   } catch (e) {
-    console.error("[photo] profile fetch fail:", e.message);
+    console.error(`[photo] fetch fail (${customer.telegramId}):`, e.message);
     return null;
   }
+}
+
+const BACKFILL_CONCURRENCY = 5;
+
+async function mapLimit(items, limit, fn) {
+  let index = 0;
+  const results = new Array(items.length);
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const i = index++;
+      results[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function runPhotoBackfill() {
+  try {
+    const staleCutoff = new Date(Date.now() - PHOTO_RETRY_MS);
+    const customers = await prisma.customer.findMany({
+      where: {
+        OR: [
+          { photo: null },
+          { photo: "", photoCheckedAt: null },
+          { photo: "", photoCheckedAt: { lt: staleCutoff } },
+        ],
+      },
+      take: 300,
+    });
+    if (!customers.length) {
+      console.log("[photo] backfill: koi pending photo nahi");
+      return;
+    }
+
+    const working = customers.filter((c) => runningBots.has(c.botId));
+    if (!working.length) {
+      console.log("[photo] backfill: running bot nahi mila, skip");
+      return;
+    }
+
+    console.log(`[photo] backfill: ${working.length}/${customers.length} customers ke liye try kar rahe hain`);
+
+    const results = await mapLimit(working, BACKFILL_CONCURRENCY, async (c) => {
+      const bot = runningBots.get(c.botId);
+      if (!bot) return null;
+      return refreshCustomerPhoto(bot, c, false);
+    });
+
+    const saved = results.filter(Boolean).length;
+    console.log(`[photo] backfill complete: ${saved} photo(s) saved`);
+  } catch (e) {
+    console.error("[photo] backfill error:", e.message);
+  }
+}
+
+export function startPhotoBackfill() {
+  // Bots ready hone ka intezar
+  setTimeout(() => runPhotoBackfill(), 5000);
+  const timer = setInterval(runPhotoBackfill, 60 * 60 * 1000);
+  timer.unref?.();
+  return timer;
 }
 
 async function broadcastIncoming(customer, message, botRecord) {

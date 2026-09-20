@@ -9,7 +9,7 @@ import adminRoutes from "./routes/adminRoutes.js";
 import staffRoutes from "./routes/staffRoutes.js";
 import conversationRoutes from "./routes/conversationRoutes.js";
 import { requireAuth } from "./middleware/auth.js";
-import { startAllBots } from "./telegram/handlers.js";
+import { startAllBots, startPhotoBackfill } from "./telegram/handlers.js";
 
 function parseOrigins() {
   const raw = process.env.FRONTEND_URL;
@@ -72,6 +72,7 @@ export async function createApp() {
   });
 
   await startAllBots();
+  startPhotoBackfill();
 
   return app;
 }

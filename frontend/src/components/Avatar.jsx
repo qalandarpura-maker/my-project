@@ -1,5 +1,18 @@
 import { useEffect, useState } from "react";
 
+function resolvePhotoUrl(photo) {
+  if (!photo || /^https?:\/\//i.test(photo)) return photo;
+  // Relative /uploads/... URL — production me frontend aur backend alag origin par hain
+  // to backend origin se resolve karo (dev me Vite proxy khud handle karta hai)
+  if (photo.startsWith("/")) {
+    const apiBase = import.meta.env.VITE_API_URL;
+    if (apiBase && /^https?:\/\//i.test(apiBase)) {
+      return `${apiBase.replace(/\/api\/?$/, "").replace(/\/+$/, "")}${photo}`;
+    }
+  }
+  return photo;
+}
+
 function initialsOf(customer) {
   const name = (customer?.firstName || "").trim();
   if (name) return name[0].toUpperCase();
@@ -9,7 +22,7 @@ function initialsOf(customer) {
 
 export default function Avatar({ customer, size = 40, className = "" }) {
   const [src, setSrc] = useState(null);
-  const photo = customer?.photo;
+  const photo = resolvePhotoUrl(customer?.photo);
 
   useEffect(() => {
     let objectUrl = null;
