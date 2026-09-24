@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Avatar from "./Avatar.jsx";
+import { useMediaSrc } from "../useMediaSrc.js";
 
 function BrokenImage({ type = "image" }) {
   return (
@@ -13,9 +14,11 @@ function BrokenImage({ type = "image" }) {
   );
 }
 
-function MediaImage({ src, className }) {
+function MediaImage({ url, className }) {
+  const src = useMediaSrc(url);
   const [failed, setFailed] = useState(false);
-  if (failed) return <BrokenImage type="image" />;
+  useEffect(() => setFailed(false), [src]);
+  if (failed || !src) return <BrokenImage type="image" />;
   return (
     <img
       src={src}
@@ -26,9 +29,11 @@ function MediaImage({ src, className }) {
   );
 }
 
-function MediaVideo({ src, className }) {
+function MediaVideo({ url, className }) {
+  const src = useMediaSrc(url);
   const [failed, setFailed] = useState(false);
-  if (failed) return <BrokenImage type="video" />;
+  useEffect(() => setFailed(false), [src]);
+  if (failed || !src) return <BrokenImage type="video" />;
   return (
     <video
       src={src}
@@ -37,6 +42,18 @@ function MediaVideo({ src, className }) {
       onError={() => setFailed(true)}
       className={className}
     />
+  );
+}
+
+function MediaDocument({ url, className = "" }) {
+  const src = useMediaSrc(url);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  if (failed || !src) return <BrokenImage type="document" />;
+  return (
+    <a href={src} download target="_blank" rel="noreferrer" className={className}>
+      📄 {url.split("/").pop()}
+    </a>
   );
 }
 
@@ -62,20 +79,16 @@ function MessageBubble({ m, onDelete, canDelete }) {
             📝 Note — sirf agent ko
           </p>
           {m.mediaType === "image" && m.mediaUrl && (
-            <MediaImage src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg" />
+            <MediaImage url={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg" />
           )}
           {m.mediaType === "video" && m.mediaUrl && (
-            <MediaVideo src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg bg-black" />
+            <MediaVideo url={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg bg-black" />
           )}
           {m.mediaType === "document" && m.mediaUrl && (
-            <a
-              href={m.mediaUrl}
-              target="_blank"
-              rel="noreferrer"
+            <MediaDocument
+              url={m.mediaUrl}
               className="mb-1 flex items-center gap-1 text-xs underline text-lemon"
-            >
-              📄 {m.mediaUrl.split("/").pop()}
-            </a>
+            />
           )}
           {m.text ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}
           <div className="mt-1 flex items-center justify-end gap-2">
@@ -116,22 +129,18 @@ function MessageBubble({ m, onDelete, canDelete }) {
           }`}
         >
           {m.mediaType === "image" && m.mediaUrl && (
-            <MediaImage src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg" />
+            <MediaImage url={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg" />
           )}
           {m.mediaType === "video" && m.mediaUrl && (
-            <MediaVideo src={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg bg-black" />
+            <MediaVideo url={m.mediaUrl} className="mb-1 max-h-64 max-w-full rounded-lg bg-black" />
           )}
           {m.mediaType === "document" && m.mediaUrl && (
-            <a
-              href={m.mediaUrl}
-              target="_blank"
-              rel="noreferrer"
+            <MediaDocument
+              url={m.mediaUrl}
               className={`mb-1 flex items-center gap-1 text-xs underline ${
                 mine ? "text-white/85" : "text-slate-500"
               }`}
-            >
-              📄 {m.mediaUrl.split("/").pop()}
-            </a>
+            />
           )}
           {m.text ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}
           <p
@@ -588,20 +597,16 @@ export default function ChatWindow({
           {notes.map((m) => (
             <div key={m.id} className="rounded-lg border border-lemon/30 bg-lemon-soft p-3">
               {m.mediaType === "image" && m.mediaUrl && (
-                <MediaImage src={m.mediaUrl} className="mb-2 max-h-52 w-full rounded-lg object-cover" />
+                <MediaImage url={m.mediaUrl} className="mb-2 max-h-52 w-full rounded-lg object-cover" />
               )}
               {m.mediaType === "video" && m.mediaUrl && (
-                <MediaVideo src={m.mediaUrl} className="mb-2 max-h-52 w-full rounded-lg bg-black" />
+                <MediaVideo url={m.mediaUrl} className="mb-2 max-h-52 w-full rounded-lg bg-black" />
               )}
               {m.mediaType === "document" && m.mediaUrl && (
-                <a
-                  href={m.mediaUrl}
-                  target="_blank"
-                  rel="noreferrer"
+                <MediaDocument
+                  url={m.mediaUrl}
                   className="mb-2 flex items-center gap-1 text-xs underline text-lemon"
-                >
-                  📄 {m.mediaUrl.split("/").pop()}
-                </a>
+                />
               )}
               {m.text ? (
                 <p className="whitespace-pre-wrap break-words text-sm text-slate-700">{m.text}</p>
