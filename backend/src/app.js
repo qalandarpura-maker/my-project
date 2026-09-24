@@ -35,7 +35,14 @@ export async function createApp() {
 
   const FRONTEND = getAllowedOrigins();
 
-  app.use(helmet());
+  // cross-origin resource loading allowed rakhna zaroori hai:
+  // frontend aur backend alag origins par hain (production), warna profile
+  // photos /uploads/... browser me block ho jati hain.
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: "cross-origin" },
+    })
+  );
   app.use(cors({ origin: FRONTEND, credentials: true }));
   app.use(express.json());
 

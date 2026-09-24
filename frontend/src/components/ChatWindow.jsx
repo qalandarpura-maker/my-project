@@ -338,6 +338,14 @@ export default function ChatWindow({
     })();
   }
 
+  function onTextareaKeyDown(e) {
+    // Enter = send, Shift+Enter = nayi line
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit(e);
+    }
+  }
+
   function onPaste(e) {
     const items = e.clipboardData?.items || [];
     const files = [];
@@ -508,7 +516,7 @@ export default function ChatWindow({
           </div>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex items-end gap-2">
           <input
             ref={fileRef}
             type="file"
@@ -524,24 +532,26 @@ export default function ChatWindow({
             type="button"
             onClick={() => fileRef.current?.click()}
             title="Image attach karo (drag-drop ya paste Ctrl+V)"
-            className="rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-600 hover:bg-slate-100"
+            className="h-[2.6rem] shrink-0 rounded-lg border border-slate-300 px-3 text-sm text-slate-600 hover:bg-slate-100"
           >
             🖼
           </button>
-          <input
+          <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onKeyDown={onTextareaKeyDown}
+            rows={1}
             placeholder={
               pending.length
                 ? "Images ke liye caption likho (optional)..."
-                : "Reply likho (Enter se send)"
+                : "Reply likho (Enter se send, Shift+Enter se nayi line)..."
             }
-            className="flex-1 rounded-lg border border-slate-300 px-4 py-2.5 text-sm text-slate-800 outline-none focus:border-lemon"
+            className="max-h-44 min-h-[2.6rem] flex-1 resize-y rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm leading-6 text-slate-800 outline-none focus:border-lemon"
           />
           <button
             type="submit"
             disabled={sending || (!text.trim() && !pending.length)}
-            className="rounded-lg bg-gradient-to-br from-brand to-lemon px-5 py-2.5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
+            className="h-[2.6rem] shrink-0 rounded-lg bg-gradient-to-br from-brand to-lemon px-5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-40"
           >
             {sending ? "Sending..." : pending.length ? `Send ${pending.length}` : "Send"}
           </button>

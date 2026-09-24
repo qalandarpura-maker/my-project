@@ -39,6 +39,7 @@ export default function ChatWorkspace({ agentView = false }) {
   const [error, setError] = useState(null);
   const [mobileNotes, setMobileNotes] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState("");
 
   function startListResize(e) {
     e.preventDefault();
@@ -410,6 +411,15 @@ export default function ChatWorkspace({ agentView = false }) {
 
   const sorted = [...customers].sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
 
+  const q = search.trim().toLowerCase();
+  const filtered = !q
+    ? sorted
+    : sorted.filter((c) =>
+        [c.firstName, c.lastName, c.telegramUser, c.telegramId, c.lastMessage, c.botUsername].some(
+          (v) => v && String(v).toLowerCase().includes(q)
+        )
+      );
+
   return (
     <div className="relative flex h-full overflow-hidden">
       <div
@@ -435,9 +445,37 @@ export default function ChatWorkspace({ agentView = false }) {
           </button>
         </div>
         {error && <p className="bg-red-50 p-2 text-xs text-red-600">{error}</p>}
+        <div className="border-b border-slate-200 px-3 py-2">
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+              🔍
+            </span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search chats..."
+              className="w-full rounded-lg border border-slate-300 bg-slate-50 py-2 pl-9 pr-8 text-sm text-slate-700 outline-none transition focus:border-lemon focus:bg-white"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                title="Search clear karo"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-slate-400 transition hover:text-slate-700"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
         <div className="flex-1 overflow-y-auto">
           {loading && <p className="p-4 text-sm text-slate-500">Loading...</p>}
-          {sorted.map((c) => (
+          {!loading && !filtered.length && (
+            <p className="p-4 text-sm text-slate-400">
+              {q ? "Koyi matching chat nahi mili." : "Abhi koi conversation nahi hai."}
+            </p>
+          )}
+          {filtered.map((c) => (
             <button
               key={c.id}
               onClick={() => select(c.id)}
@@ -500,9 +538,6 @@ export default function ChatWorkspace({ agentView = false }) {
               </div>
             </button>
           ))}
-          {!loading && !sorted.length && (
-            <p className="p-4 text-sm text-slate-400">Abhi koi conversation nahi hai.</p>
-          )}
         </div>
       </div>
 

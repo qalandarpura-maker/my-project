@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 function resolvePhotoUrl(photo) {
   if (!photo || /^https?:\/\//i.test(photo)) return photo;
@@ -21,18 +21,21 @@ function initialsOf(customer) {
 }
 
 export default function Avatar({ customer, size = 40, className = "" }) {
-  const [src, setSrc] = useState(null);
-  const photo = resolvePhotoUrl(customer?.photo);
+  const photo = useMemo(() => resolvePhotoUrl(customer?.photo), [customer?.photo]);
+  const isExternal = /^https?:\/\//i.test(photo || "");
+  const [blobSrc, setBlobSrc] = useState(null);
+  const [failed, setFailed] = useState(false);
 
+  useEffect(() => setFailed(false), [photo]);
+
+  // Relative /uploads/... URL log in karne wale user ke liye auth ke sath fetch karo
   useEffect(() => {
-    let objectUrl = null;
-    let cancelled = false;
-
-    if (!photo) {
-      setSrc(null);
+    if (!photo || isExternal) {
+      setBlobSrc(null);
       return undefined;
     }
-
+    let objectUrl = null;
+    let cancelled = false;
     (async () => {
       try {
         const token = localStorage.getItem("token");
@@ -43,22 +46,31 @@ export default function Avatar({ customer, size = 40, className = "" }) {
         const blob = await res.blob();
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
-        setSrc(objectUrl);
+        setBlobSrc(objectUrl);
       } catch {
-        if (!cancelled) setSrc(null);
+        if (!cancelled) setFailed(true);
       }
     })();
-
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [photo]);
+  }, [photo, isExternal]);
 
+  // Absolute URL (R2/CDN) seedha dikhao, auth/CORS ki zaroorat nahi
+  const src = isExternal ? photo : blobSrc;
   const base = `flex items-center justify-center rounded-full overflow-hidden shrink-0 ${className}`;
 
-  if (src) {
-    return <img src={src} alt="profile" className={`${base} object-cover`} />;
+  if (src && !failed) {
+    return (
+      <img
+        key={src}
+        src={src}
+        alt="profile"
+        onError={() => setFailed(true)}
+        className={`${base} object-cover`}
+      />
+    );
   }
 
   return (
